@@ -431,16 +431,21 @@
     const { stageSelector = '#slideStage', getState, onNav, onAction, onStatusChange, bindKeyR = true } = opts;
     const params = new URLSearchParams(location.search);
 
-    let room = sessionStorage.getItem('sr_room') || randId(6);
-    let token = sessionStorage.getItem('sr_token') || randId(10);
-    sessionStorage.setItem('sr_room', room);
-    sessionStorage.setItem('sr_token', token);
+    function safeGet(kind, key) { try { return global[kind]?.getItem(key) ?? null; } catch { return null; } }
+    function safeSet(kind, key, val) { try { global[kind]?.setItem(key, val); } catch {} }
+    function safeRemove(kind, key) { try { global[kind]?.removeItem(key); } catch {} }
+
+    let room = safeGet('sessionStorage', 'sr_room') || randId(6);
+    let token = safeGet('sessionStorage', 'sr_token') || randId(10);
+    safeSet('sessionStorage', 'sr_room', room);
+    safeSet('sessionStorage', 'sr_token', token);
 
     const isHttpUrl = (u) => Boolean(u && /^https?:\/\//i.test(u));
+    const defaults = global.SLIDE_REMOTE_DEFAULTS || {};
 
-    let relayBase = params.get('relay') || localStorage.getItem('sr_relay_base') ||
+    let relayBase = params.get('relay') || safeGet('localStorage', 'sr_relay_base') || opts.relayBase || defaults.relayBase ||
       ((location.protocol === 'http:' || location.protocol === 'https:') ? location.origin : '');
-    let backupRelay = params.get('backup') || localStorage.getItem('sr_backup_relay') || opts.backupRelay || '';
+    let backupRelay = params.get('backup') || safeGet('localStorage', 'sr_backup_relay') || opts.backupRelay || defaults.backupRelay || '';
     let usingBackup = false;
 
     let ws = null, reconnectTimer = null, connectTimer = null, remoteCount = 0;
@@ -661,10 +666,10 @@
       modalEl.querySelector('[data-sr-m="connect"]').onclick = () => {
         relayBase = modalEl.querySelector('[data-sr-m="relay"]').value.trim().replace(/\/+$/, '');
         backupRelay = modalEl.querySelector('[data-sr-m="backup"]').value.trim().replace(/\/+$/, '');
-        if (relayBase) localStorage.setItem('sr_relay_base', relayBase);
-        else localStorage.removeItem('sr_relay_base');
-        if (backupRelay) localStorage.setItem('sr_backup_relay', backupRelay);
-        else localStorage.removeItem('sr_backup_relay');
+        if (relayBase) safeSet('localStorage', 'sr_relay_base', relayBase);
+        else safeRemove('localStorage', 'sr_relay_base');
+        if (backupRelay) safeSet('localStorage', 'sr_backup_relay', backupRelay);
+        else safeRemove('localStorage', 'sr_backup_relay');
         connect(false);
         refreshModal();
       };
@@ -677,7 +682,7 @@
       modalEl.querySelector('[data-sr-m="sim"]').onclick = () => { closeModal(); openSimulator(); };
       modalEl.querySelector('[data-sr-m="regen"]').onclick = () => {
         room = randId(6); token = randId(10);
-        sessionStorage.setItem('sr_room', room); sessionStorage.setItem('sr_token', token);
+        safeSet('sessionStorage', 'sr_room', room); safeSet('sessionStorage', 'sr_token', token);
         connect(false);
         refreshModal();
       };

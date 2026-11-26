@@ -98,6 +98,25 @@ Cloudflare prints a permanent HTTPS/WSS URL such as `https://slides-remote.<your
 * **Automatic failover:** Press **`R`** in any deck, paste your `workers.dev` URL into **Backup Relay**, and click **Connect** (or pass `backupRelay: 'https://...'` in `SlideRemote.init`). If your Tailscale Funnel machine is unreachable, `remote.js` automatically fails over to the Cloudflare Worker and updates the QR code.
 * **Works with standalone HTML files too:** Open a local `.html` presentation (e.g., downloaded from Google Drive), press **`R`**, paste your `workers.dev` URL, and scan the QR code — the Worker serves the phone touch controller directly.
 
+### Standalone Single-File Export (Works Without Tailscale or Any Server)
+
+Want a single `.html` file you can copy to any podium PC (via USB, AirDrop, or Google Drive) with **both** relays baked in — without committing your personal URLs to Git?
+
+1. **Configure your gitignored `.env` once:**
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env` with your Tailscale Funnel `PRIMARY_RELAY` and Cloudflare `BACKUP_RELAY`. (`server.mjs` also reads `BACKUP_RELAY` from `.env` automatically.)
+
+2. **Export standalone `.html` file(s) into gitignored `dist/`:**
+   ```bash
+   node export.mjs                      # exports all decks/*.html to dist/*.standalone.html
+   node export.mjs decks/my-talk.html   # or export a single deck
+   ```
+
+3. **Open the exported `.standalone.html` directly in any browser (`file://`):**
+   It tries your Tailnet primary relay first, and if your Tailnet machine is offline or unreachable, it automatically fails over to your Cloudflare Worker within 5 seconds.
+
 ---
 
 ## Repository Structure
@@ -105,7 +124,9 @@ Cloudflare prints a permanent HTTPS/WSS URL such as `https://slides-remote.<your
 ```
 slides-remote/
 ├── server.mjs                  # Zero-dependency HTTP + WebSocket relay & deck server
+├── export.mjs                  # Single-file standalone HTML exporter (inlines remote.js + .env relays)
 ├── remote.js                   # Reusable drop-in phone controller, QR modal, auto-failover
+├── .env.example                # Template for personal PRIMARY_RELAY / BACKUP_RELAY (copy to .env)
 ├── cloudflare-worker/
 │   ├── worker.js               # Free-tier Durable Object WebSocket backup relay + mobile UI
 │   └── wrangler.toml           # Cloudflare Workers config (SQLite Durable Objects)

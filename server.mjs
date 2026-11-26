@@ -23,11 +23,30 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function loadEnvFile(envPath) {
+  if (!fs.existsSync(envPath)) return;
+  for (const rawLine of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let val = line.slice(eq + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = val;
+  }
+}
+loadEnvFile(path.join(__dirname, '.env'));
+
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
 const DECKS_DIR = path.join(__dirname, 'decks');
 const REMOTE_JS = path.join(__dirname, 'remote.js');
 const DEFAULT_DECK = process.env.DECK ? path.resolve(__dirname, process.env.DECK) : null;
+const BACKUP_RELAY = (process.env.BACKUP_RELAY || '').trim().replace(/\/+$/, '');
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const ROOM_TTL_MS = 6 * 60 * 60 * 1000;
 
@@ -317,7 +336,21 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/remote.js') {
-    sendFile(res, REMOTE_JS, 'application/javascript; charset=utf-8');
+    if (!BACKUP_RELAY) {
+      sendFile(res, REMOTE_JS, 'application/javascript; charset=utf-8');
+      return;
+    }
+    fs.readFile(REMOTE_JS, 'utf8', (err, content) => {
+      if (err) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Not found');
+        return;
+      }
+      const safeJson = JSON.stringify(BACKUP_RELAY).replace(/</g, '\\u003c');
+      const prefix = `window.SLIDE_REMOTE_DEFAULTS=Object.assign({backupRelay:${safeJson}},window.SLIDE_REMOTE_DEFAULTS);\n`;
+      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(prefix + content);
+    });
     return;
   }
 

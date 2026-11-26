@@ -436,10 +436,14 @@
     sessionStorage.setItem('sr_room', room);
     sessionStorage.setItem('sr_token', token);
 
+    const isHttpUrl = (u) => Boolean(u && /^https?:\/\//i.test(u));
+
     let relayBase = params.get('relay') || localStorage.getItem('sr_relay_base') ||
       ((location.protocol === 'http:' || location.protocol === 'https:') ? location.origin : '');
+    let backupRelay = params.get('backup') || localStorage.getItem('sr_backup_relay') || opts.backupRelay || '';
+    let usingBackup = false;
 
-    let ws = null, reconnectTimer = null, remoteCount = 0;
+    let ws = null, reconnectTimer = null, connectTimer = null, remoteCount = 0;
     let modalEl = null, simEl = null, simUI = null, laserEl = null, laserVis = null, laserTimer = null;
 
     function ensureLaser() {
@@ -491,27 +495,71 @@
       if (simUI) simUI.renderState(st);
     }
 
+    function getActiveBase() {
+      if (usingBackup && isHttpUrl(backupRelay)) return backupRelay;
+      if (isHttpUrl(relayBase)) return relayBase;
+      if (isHttpUrl(backupRelay)) return backupRelay;
+      return '';
+    }
+
     function getPairingUrl() {
-      const base = (relayBase && /^https?:\/\//i.test(relayBase))
-        ? relayBase.replace(/\/+$/, '')
-        : 'https://<your-machine>.<your-tailnet>.ts.net:10000';
+      const active = getActiveBase();
+      const base = active ? active.replace(/\/+$/, '') : 'https://<your-machine>.<your-tailnet>.ts.net:10000';
       return `${base}/remote?r=${encodeURIComponent(room)}&t=${encodeURIComponent(token)}`;
     }
 
     function emitStatus(status) {
-      onStatusChange?.({ status, remotes: remoteCount });
+      onStatusChange?.({ status, remotes: remoteCount, usingBackup });
       updateModalStatus(status);
     }
 
-    function connect() {
-      if (ws) { try { ws.close(); } catch {} ws = null; }
+    function connect(preferBackup = false) {
       clearTimeout(reconnectTimer);
-      const wsUrl = buildWsUrl(relayBase, room, token, 'deck');
+      clearTimeout(connectTimer);
+      if (ws) {
+        ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+        try { ws.close(); } catch {}
+        ws = null;
+      }
+      remoteCount = 0;
+
+      const hasPrimary = isHttpUrl(relayBase);
+      const hasBackup = isHttpUrl(backupRelay);
+      const canFailoverToBackup = hasBackup && backupRelay !== relayBase;
+      usingBackup = (preferBackup && hasBackup) || (!hasPrimary && hasBackup);
+
+      const targetBase = getActiveBase();
+      const wsUrl = buildWsUrl(targetBase, room, token, 'deck');
       if (!wsUrl) { emitStatus('local'); return; }
+
       emitStatus('connecting');
-      try { ws = new WebSocket(wsUrl); } catch { emitStatus('offline'); return; }
-      ws.onopen = () => { emitStatus('connected'); sync(); };
-      ws.onmessage = (ev) => {
+      let sock;
+      try { sock = new WebSocket(wsUrl); } catch {
+        if (!usingBackup && canFailoverToBackup) { connect(true); return; }
+        emitStatus('offline');
+        reconnectTimer = setTimeout(() => connect(false), 2500);
+        return;
+      }
+      ws = sock;
+      let opened = false;
+
+      if (!usingBackup && canFailoverToBackup) {
+        connectTimer = setTimeout(() => {
+          if (sock !== ws || opened) return;
+          connect(true);
+        }, 5000);
+      }
+
+      sock.onopen = () => {
+        if (sock !== ws) return;
+        clearTimeout(connectTimer);
+        opened = true;
+        refreshModal();
+        emitStatus('connected');
+        sync();
+      };
+      sock.onmessage = (ev) => {
+        if (sock !== ws) return;
         let msg; try { msg = JSON.parse(ev.data); } catch { return; }
         if (msg.type === 'presence') {
           remoteCount = msg.remotes || 0;
@@ -521,18 +569,33 @@
           handleCommand(msg);
         }
       };
-      ws.onclose = () => { emitStatus('offline'); reconnectTimer = setTimeout(connect, 2500); };
-      ws.onerror = () => {};
+      sock.onclose = () => {
+        if (sock !== ws) return;
+        clearTimeout(connectTimer);
+        ws = null;
+        remoteCount = 0;
+        // Automatic failover: if primary failed to open and a backup relay is configured, switch immediately
+        if (!opened && !usingBackup && canFailoverToBackup) {
+          connect(true);
+          return;
+        }
+        emitStatus('offline');
+        const nextPreferBackup = (!opened && usingBackup && hasPrimary) ? false : usingBackup;
+        reconnectTimer = setTimeout(() => connect(nextPreferBackup), 2500);
+      };
+      sock.onerror = () => {};
     }
 
     function updateModalStatus(status) {
       if (!modalEl) return;
       const el = modalEl.querySelector('[data-sr-m="status"]');
       if (!el) return;
-      if (status === 'connected' && remoteCount > 0) el.innerHTML = `<span style="color:#15803d;font-weight:700">● ${remoteCount} phone connected</span>`;
-      else if (status === 'connected') el.innerHTML = `<span style="color:#1d5ca8;font-weight:600">● Relay ready · scan QR with phone</span>`;
-      else if (status === 'local') el.innerHTML = `<span>Local preview · paste Funnel URL or test Simulator</span>`;
-      else el.innerHTML = `<span style="color:#b34712">Relay offline · start node server.mjs</span>`;
+      const tag = usingBackup ? ' (Backup)' : '';
+      if (status === 'connected' && remoteCount > 0) el.innerHTML = `<span style="color:#15803d;font-weight:700">● ${remoteCount} phone connected${tag}</span>`;
+      else if (status === 'connected') el.innerHTML = `<span style="color:#1d5ca8;font-weight:600">● Relay ready${tag} · scan QR</span>`;
+      else if (status === 'connecting') el.innerHTML = `<span style="color:#5b6472">Connecting${tag}…</span>`;
+      else if (status === 'local') el.innerHTML = `<span>Local preview · paste Relay URL or test Simulator</span>`;
+      else el.innerHTML = `<span style="color:#b34712">Relay offline · trying backup / reconnect</span>`;
     }
 
     function openSimulator() {
@@ -567,16 +630,20 @@
               <div data-sr-m="qr" style="width:160px;height:160px;padding:8px;background:#fff;border:1px solid #d9d2c7;border-radius:12px">${renderQRSvg(link)}</div>
               <div data-sr-m="status" style="font-size:11px;text-align:center;color:#5b6472"></div>
             </div>
-            <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
+            <div style="display:flex;flex-direction:column;gap:9px;font-size:12px">
               <div>
-                <div style="font-size:11px;font-weight:700;color:#5b6472;margin-bottom:4px">Relay URL (Tailscale Funnel)</div>
+                <div style="font-size:11px;font-weight:700;color:#5b6472;margin-bottom:3px">Primary Relay (Tailscale Funnel)</div>
+                <input data-sr-m="relay" value="${esc(relayBase)}" placeholder="https://machine.tailnet.ts.net:10000" />
+              </div>
+              <div>
+                <div style="font-size:11px;font-weight:700;color:#5b6472;margin-bottom:3px">Backup Relay (Cloudflare Worker · auto-failover)</div>
                 <div style="display:flex;gap:6px">
-                  <input data-sr-m="relay" value="${esc(relayBase)}" placeholder="https://machine.tailnet.ts.net:10000" />
+                  <input data-sr-m="backup" value="${esc(backupRelay)}" placeholder="https://slides-remote.you.workers.dev" />
                   <button data-sr-m="connect" class="sr-btn" style="background:#1d5ca8;color:#fff;white-space:nowrap">Connect</button>
                 </div>
               </div>
               <div>
-                <div style="font-size:11px;font-weight:700;color:#5b6472;margin-bottom:4px">Phone Remote Link</div>
+                <div style="font-size:11px;font-weight:700;color:#5b6472;margin-bottom:3px">Phone Remote Link</div>
                 <div style="display:flex;gap:6px">
                   <input data-sr-m="link" readonly value="${esc(link)}" />
                   <button data-sr-m="copy" class="sr-btn" style="background:#ece8e1;color:#14213d">Copy</button>
@@ -593,9 +660,12 @@
       modalEl.querySelector('[data-sr-m="close"]').onclick = closeModal;
       modalEl.querySelector('[data-sr-m="connect"]').onclick = () => {
         relayBase = modalEl.querySelector('[data-sr-m="relay"]').value.trim().replace(/\/+$/, '');
+        backupRelay = modalEl.querySelector('[data-sr-m="backup"]').value.trim().replace(/\/+$/, '');
         if (relayBase) localStorage.setItem('sr_relay_base', relayBase);
         else localStorage.removeItem('sr_relay_base');
-        connect();
+        if (backupRelay) localStorage.setItem('sr_backup_relay', backupRelay);
+        else localStorage.removeItem('sr_backup_relay');
+        connect(false);
         refreshModal();
       };
       modalEl.querySelector('[data-sr-m="copy"]').onclick = (e) => {
@@ -608,11 +678,16 @@
       modalEl.querySelector('[data-sr-m="regen"]').onclick = () => {
         room = randId(6); token = randId(10);
         sessionStorage.setItem('sr_room', room); sessionStorage.setItem('sr_token', token);
-        connect();
+        connect(false);
         refreshModal();
       };
       document.body.appendChild(modalEl);
-      updateModalStatus(ws && ws.readyState === WebSocket.OPEN ? 'connected' : (relayBase ? 'offline' : 'local'));
+      const initStatus = !getActiveBase()
+        ? 'local'
+        : (ws && ws.readyState === WebSocket.OPEN
+          ? 'connected'
+          : (ws && ws.readyState === WebSocket.CONNECTING ? 'connecting' : 'offline'));
+      updateModalStatus(initStatus);
     }
 
     function refreshModal() {

@@ -1,0 +1,12 @@
+name = "slides-remote"
+main = "worker.js"
+compatibility_date = "2025-10-01"
+
+[durable_objects]
+bindings = [
+  { name = "ROOMS", class_name = "SlideRoom" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SlideRoom"]

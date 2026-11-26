@@ -83,12 +83,32 @@ See [`decks/starter.html`](decks/starter.html) for a complete ~90-line working e
 
 ---
 
+## Backup Relay: Cloudflare Worker (When Your Tailnet Machine Is Offline)
+
+Want phone control to keep working even if your home/lab machine is asleep *and* you're presenting on a locked-down podium PC? Deploy the included free-tier Cloudflare Worker once (~1 minute):
+
+```bash
+cd cloudflare-worker
+npx wrangler login
+npx wrangler deploy
+```
+
+Cloudflare prints a permanent HTTPS/WSS URL such as `https://slides-remote.<your-subdomain>.workers.dev`.
+
+* **Automatic failover:** Press **`R`** in any deck, paste your `workers.dev` URL into **Backup Relay**, and click **Connect** (or pass `backupRelay: 'https://...'` in `SlideRemote.init`). If your Tailscale Funnel machine is unreachable, `remote.js` automatically fails over to the Cloudflare Worker and updates the QR code.
+* **Works with standalone HTML files too:** Open a local `.html` presentation (e.g., downloaded from Google Drive), press **`R`**, paste your `workers.dev` URL, and scan the QR code — the Worker serves the phone touch controller directly.
+
+---
+
 ## Repository Structure
 
 ```
 slides-remote/
 ├── server.mjs                  # Zero-dependency HTTP + WebSocket relay & deck server
-├── remote.js                   # Reusable drop-in phone controller, QR modal, laser overlay
+├── remote.js                   # Reusable drop-in phone controller, QR modal, auto-failover
+├── cloudflare-worker/
+│   ├── worker.js               # Free-tier Durable Object WebSocket backup relay + mobile UI
+│   └── wrangler.toml           # Cloudflare Workers config (SQLite Durable Objects)
 ├── decks/
 │   ├── starter.html            # Minimal 4-slide template with phone slider demo
 │   └── ai-presentations.html   # 26-slide interactive reveal talk showcase

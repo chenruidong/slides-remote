@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Making slides and presentations with AI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f3f1ec;
+      color: #14213d;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .slide-stage {
+      background: #ffffff;
+      color: #14213d;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+      border-radius: 10px;
+      box-shadow: 0 12px 38px rgba(15, 23, 42, 0.14), 0 1px 3px rgba(15, 23, 42, 0.08);
+      transition: box-shadow 0.45s ease;
+    }
+    .slide-stage.live-unlocked {
+      box-shadow: 0 16px 46px rgba(29, 92, 168, 0.18), 0 0 0 2px #1d5ca8;
+    }
+    .slide-title { color: #0b0f14; font-weight: 800; letter-spacing: -0.025em; line-height: 1.15; }
+    .warm-card { background: #fdfbf6; border: 1.5px solid #d9d2c7; border-radius: 12px; }
+    .sticky-note { background: #f9d566; color: #14213d; box-shadow: 5px 5px 0px #ddd4c3; }
+    .human-box { background: #f7e3d7; border-radius: 12px; }
+    .human-inner { background: #fdfbf6; border: 1.5px solid #c75e28; border-radius: 10px; }
+    .agent-box { background: #dcebfa; border-radius: 12px; }
+    .agent-inner { background: #fdfbf6; border: 1.5px solid #1d5ca8; border-radius: 10px; }
+    .builder-box { background: #ece8e1; border-radius: 12px; }
+    .builder-inner { background: #fdfbf6; border: 1.5px solid #8a8275; border-radius: 10px; }
+    .slide-num { position: absolute; right: 2.8%; bottom: 3.4%; font-size: clamp(11px, 1.15vw, 15px); color: #5b6472; font-weight: 500; user-select: none; }
+    .fade-slide { animation: fadeSlideIn 0.2s ease-out; }
+    @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes pulseRing { 0%, 100% { box-shadow: 0 0 0 0 rgba(29,92,168,.35); } 50% { box-shadow: 0 0 0 8px rgba(29,92,168,0); } }
+    .pulse-ring { animation: pulseRing 2.2s infinite; }
+    input[type="range"] { accent-color: #1d5ca8; }
+    @media print {
+      body { background: #fff !important; }
+      .no-print { display: none !important; }
+      #handoutView { position: static !important; display: block !important; background: #fff !important; padding: 0 !important; }
+    }
+  </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col">
+
+  <!-- Minimal top bar -->
+  <header class="no-print w-full px-4 py-2.5 flex items-center justify-between gap-3 border-b border-[#e2ddd3] bg-white/80 backdrop-blur-sm">
+    <div class="flex items-center gap-2.5 min-w-0">
+      <span id="deckModeBadge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#ece8e1] text-[#4a5568] transition-all duration-300">
+        <span id="deckModeDot" class="w-1.5 h-1.5 rounded-full bg-[#64748b]"></span>
+        <span id="deckModeLabel">Slide Deck</span>
+      </span>
+      <span id="sectionCrumb" class="text-xs text-[#5b6472] truncate hidden sm:inline">Opening</span>
+    </div>
+
+    <div class="flex items-center gap-1.5">
+      <button onclick="remote.openModal()" title="Phone Remote &amp; Laser Pointer (R)"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-[#d9d2c7] bg-white text-[#14213d] hover:bg-[#f8f6f1] transition">
+        <span id="remoteDot" class="w-1.5 h-1.5 rounded-full bg-[#94a3b8]"></span>
+        <span>Remote</span> <span class="opacity-50">R</span>
+      </button>
+      <button onclick="toggleNotes()" title="Toggle Speaker Notes (N)"
+        class="px-2.5 py-1 rounded-md text-xs font-medium border border-[#d9d2c7] bg-white text-[#14213d] hover:bg-[#f8f6f1] transition">
+        Notes <span class="opacity-50 ml-0.5">N</span>
+      </button>
+      <button onclick="toggleGrid()" title="Slide Overview (G)"
+        class="px-2.5 py-1 rounded-md text-xs font-medium border border-[#d9d2c7] bg-white text-[#14213d] hover:bg-[#f8f6f1] transition">
+        Grid <span class="opacity-50 ml-0.5">G</span>
+      </button>
+      <button id="btnHandoutTop" onclick="toggleHandout(true)" title="View 1-Page Handout"
+        class="hidden px-2.5 py-1 rounded-md text-xs font-medium bg-[#1d5ca8] text-white hover:opacity-90 transition">
+        1-Page Handout
+      </button>
+      <button onclick="toggleFullscreen()" title="Fullscreen (F)"
+        class="px-2.5 py-1 rounded-md text-xs font-medium border border-[#d9d2c7] bg-white text-[#14213d] hover:bg-[#f8f6f1] transition">
+        Full <span class="opacity-50 ml-0.5">F</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Stage -->
+  <main class="no-print flex-1 flex flex-col items-center justify-center px-4 py-4 sm:px-6">
+    <div class="w-full max-w-[1060px] flex flex-col gap-3">
+      <div id="slideStage" class="slide-stage w-full">
+        <div id="slideContent" class="w-full h-full"></div>
+        <div id="slideNum" class="slide-num">1</div>
+      </div>
+
+      <div class="flex items-center justify-between gap-3 px-1">
+        <div class="flex items-center gap-2">
+          <button id="btnPrev" onclick="prevSlide()" class="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#d9d2c7] bg-white hover:bg-[#f8f6f1] disabled:opacity-35 transition">← Prev</button>
+          <button id="btnNext" onclick="nextSlide()" class="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#d9d2c7] bg-white hover:bg-[#f8f6f1] disabled:opacity-35 transition">Next →</button>
+          <span id="slideCounter" class="text-xs mono text-[#5b6472] ml-1">1 / 26</span>
+        </div>
+        <div class="flex-1 max-w-[380px] hidden md:flex items-center gap-1" id="progressDots"></div>
+        <div class="text-xs text-[#5b6472] hidden sm:block">
+          Keys: <kbd class="px-1 py-0.5 rounded bg-white border border-[#d9d2c7] mono text-[11px]">←</kbd> <kbd class="px-1 py-0.5 rounded bg-white border border-[#d9d2c7] mono text-[11px]">→</kbd> <kbd class="px-1 py-0.5 rounded bg-white border border-[#d9d2c7] mono text-[11px]">R</kbd>
+        </div>
+      </div>
+
+      <div id="notesPanel" class="hidden rounded-xl border border-[#d9d2c7] bg-white px-4 py-3 text-sm leading-relaxed">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs font-semibold uppercase tracking-wider text-[#5b6472]">Speaker Notes &amp; Beat</span>
+          <span id="notesMeta" class="text-xs text-[#5b6472]"></span>
+        </div>
+        <p id="notesText" class="text-[#14213d] text-xs sm:text-sm"></p>
+      </div>
+    </div>
+  </main>
+
+  <!-- Slide Grid Modal (G) -->
+  <div id="gridModal" class="no-print hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="w-full max-w-5xl max-h-[85vh] overflow-y-auto rounded-2xl border border-[#d9d2c7] bg-white p-5 shadow-2xl">
+      <div class="flex items-center justify-between mb-4 pb-3 border-b border-[#e2ddd3]">
+        <div>
+          <h2 class="text-base font-bold">Slide Overview (26 slides)</h2>
+          <p class="text-xs text-[#5b6472]">Slides 1–21 look classic · Slide 22 breaks the fourth wall · Slides 23–26 are live interactive demos</p>
+        </div>
+        <button onclick="toggleGrid(false)" class="px-3 py-1 rounded-lg text-xs font-medium border border-[#d9d2c7] hover:bg-[#f8f6f1]">Close (Esc)</button>
+      </div>
+      <div id="gridCards" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"></div>
+    </div>
+  </div>
+
+  <!-- 1-Page Take-Home Handout Overlay -->
+  <div id="handoutView" class="hidden fixed inset-0 z-50 overflow-y-auto bg-[#f3f1ec] p-4 sm:p-8">
+    <div class="max-w-4xl mx-auto">
+      <div class="no-print flex items-center justify-between mb-4">
+        <button onclick="toggleHandout(false)" class="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#d9d2c7] bg-white hover:bg-[#f8f6f1]">← Back to Live Presentation</button>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-[#5b6472]">Generated from the same source as the slides</span>
+          <button onclick="window.print()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#1d5ca8] text-white hover:opacity-90">Print / Save PDF</button>
+        </div>
+      </div>
+
+      <article class="bg-white text-[#14213d] rounded-2xl border border-[#d9d2c7] shadow-xl p-6 sm:p-10 space-y-6">
+        <header class="border-b-2 border-[#14213d] pb-4 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-widest text-[#b34712] mb-1">1-Page Take-Home Cheat Sheet</p>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-[#0b0f14] tracking-tight">Making slides and presentations with AI</h1>
+            <p class="text-sm text-[#4a5568] mt-1">Ruidong · JazLab, MIT · One source → minimal stage deck + standalone handout</p>
+          </div>
+          <div class="bg-[#f9d566] px-3.5 py-2 text-xs font-semibold shadow-[3px_3px_0_#ddd4c3]">Write the note once.<br/>AI makes sure you follow it.</div>
+        </header>
+
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="bg-[#fdfbf6] border border-[#d9d2c7] rounded-xl p-4">
+            <div class="text-xs font-bold uppercase tracking-wider text-[#1d5ca8] mb-1">1 · Check your own rules</div>
+            <p class="text-xs text-[#2d3748] leading-relaxed mb-2">Write 3 rules you believe in (or ask an AI to infer them from your past slides). Run a checker that never gets tired at 2 a.m.</p>
+            <div class="text-[11px] bg-[#ece8e1] rounded-md px-2.5 py-1.5 font-medium">10-min test: Paste your 3 rules + a draft deck into Claude and ask it to flag violations without rewriting your voice.</div>
+          </div>
+          <div class="bg-[#fdfbf6] border border-[#d9d2c7] rounded-xl p-4">
+            <div class="text-xs font-bold uppercase tracking-wider text-[#1d5ca8] mb-1">2 · Own your figure pipeline</div>
+            <p class="text-xs text-[#2d3748] leading-relaxed mb-2">Keep the script and data linked to the figure so edits reach the plotting code, not a screenshot or menu of features.</p>
+            <div class="text-[11px] bg-[#ece8e1] rounded-md px-2.5 py-1.5 font-medium">10-min test: Pick one key figure in your next talk and link its code so changing a color or threshold rebuilds cleanly.</div>
+          </div>
+          <div class="bg-[#fdfbf6] border border-[#d9d2c7] rounded-xl p-4">
+            <div class="text-xs font-bold uppercase tracking-wider text-[#1d5ca8] mb-1">3 · A second pair of eyes</div>
+            <p class="text-xs text-[#2d3748] leading-relaxed mb-2">Record yourself rehearsing aloud. Give the AI <em>only</em> the transcript—no slides, no notes—so it hears what the room hears.</p>
+            <div class="text-[11px] bg-[#ece8e1] rounded-md px-2.5 py-1.5 font-medium">10-min test: Ask the agent: “Summarize what my talk was about and where I assumed jargon.” If it misses your point, revise.</div>
+          </div>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-[#f9d566]/40 border border-[#e5c150] rounded-xl p-4">
+            <h3 class="text-sm font-bold text-[#0b0f14] mb-1.5">Keep · Rules about human attention (Winston)</h3>
+            <ul class="text-xs text-[#1f2937] space-y-1 list-disc pl-4">
+              <li>Open with a clear promise &amp; end on contributions</li>
+              <li>Say your core idea three times in different ways</li>
+              <li>Keep the visual surface uncluttered (one takeaway at a time)</li>
+              <li>Human owns taste and final decisions</li>
+            </ul>
+          </div>
+          <div class="bg-[#f7e3d7]/65 border border-[#e0b8a2] rounded-xl p-4">
+            <h3 class="text-sm font-bold text-[#0b0f14] mb-1.5">Rethink · Habits caused by production cost</h3>
+            <ul class="text-xs text-[#1f2937] space-y-1 list-disc pl-4">
+              <li>2×3 static subplot grids → one live plot with sliders</li>
+              <li>30 hidden backup slides → clickable drill-down toggles right on the figure</li>
+              <li>Static schematics → quick code-driven animations (Manimble / HTML)</li>
+              <li>Deck-as-handout compromise → one source, separate stage deck + cheat sheet</li>
+            </ul>
+          </div>
+        </section>
+
+        <footer class="pt-2 border-t border-[#e5dfd5] flex flex-wrap items-center justify-between gap-2 text-xs text-[#5b6472]">
+          <span>Tools mentioned: Claude + Google Slides · Livedeck · Manimble (Pachter lab) · Interactive HTML decks</span>
+          <span class="mono" id="handoutStats"></span>
+        </footer>
+      </article>
+    </div>
+  </div>
+
+  <!-- Drop-in Smartphone Controller & Laser Pointer -->
+  <script src="/remote.js"></script>
+  <script>
+    /* ========================================================================
+       SYNTHETIC LEARNING CURVE DATA & PLOT BUILDER
+       ======================================================================== */
+    function mulberry32(seed) {
+      return function() {
+        let t = seed += 0x6D2B79F5;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function generateBehavioralData(cueBoost = 1.0, noiseScale = 1.0) {
+      const rand = mulberry32(4219), tauCued = Math.max(1.0, 2.8 / cueBoost), tauUncued = 8.4;
+      const cuedSubjects = [], uncuedSubjects = [], nSubj = 12;
+      for (let s = 0; s < nSubj; s++) {
+        const sc = (rand() - 0.5) * 0.08 * noiseScale, su = (rand() - 0.5) * 0.11 * noiseScale;
+        const cArr = [], uArr = [];
+        for (let i = 0; i < 30; i++) {
+          const t = i + 1;
+          cArr.push(Math.min(0.99, Math.max(0.21, 0.43 + (0.935 - 0.43) * (1 - Math.exp(-(t - 1) / tauCued)) + sc + (rand() - 0.5) * 0.09 * noiseScale)));
+          uArr.push(Math.min(0.99, Math.max(0.21, 0.28 + (0.91 - 0.28) * (1 - Math.exp(-(t - 1) / tauUncued)) + su + (rand() - 0.5) * 0.12 * noiseScale)));
+        }
+        cuedSubjects.push(cArr); uncuedSubjects.push(uArr);
+      }
+      const cuedMean = [], cuedSem = [], uncuedMean = [], uncuedSem = [], controlMean = [];
+      for (let i = 0; i < 30; i++) {
+        const cs = cuedSubjects.map(a => a[i]), us = uncuedSubjects.map(a => a[i]);
+        const mc = cs.reduce((a, b) => a + b, 0) / nSubj, mu = us.reduce((a, b) => a + b, 0) / nSubj;
+        const vc = cs.reduce((a, b) => a + (b - mc) ** 2, 0) / nSubj, vu = us.reduce((a, b) => a + (b - mu) ** 2, 0) / nSubj;
+        cuedMean.push(mc); cuedSem.push(Math.sqrt(vc / nSubj) * 1.4);
+        uncuedMean.push(mu); uncuedSem.push(Math.sqrt(vu / nSubj) * 1.4);
+        controlMean.push(0.92 + Math.sin(i * 0.6) * 0.012);
+      }
+      return { cuedMean, cuedSem, uncuedMean, uncuedSem, cuedSubjects, uncuedSubjects, controlMean };
+    }
+
+    function buildLearningCurveSVG(opts = {}) {
+      const {
+        width = 420, height = 290, cueBoost = 1.0, noiseScale = 1.0,
+        cuedColor = '#1e242b', uncuedColor = '#e07016', showChance = true,
+        chanceY = 0.5, chanceLabel = 'chance', thresholdY = null,
+        showSubjects = false, showControl = false, highlightRange = null,
+        showGapAt = null, maxTrial = 30, smooth = false, compact = false
+      } = opts;
+      const data = generateBehavioralData(cueBoost, noiseScale);
+      const pad = compact ? { l: 44, r: 16, t: 18, b: 38 } : { l: 54, r: 22, t: 22, b: 44 };
+      const pw = width - pad.l - pad.r, ph = height - pad.t - pad.b;
+      const xScale = t => pad.l + ((t - 1) / (maxTrial - 1)) * pw;
+      const yScale = y => pad.t + ((1.0 - y) / 0.8) * ph;
+      const smoothArr = arr => arr.map((v, i) => !smooth ? v : (arr[Math.max(0, i - 1)] + v * 2 + arr[Math.min(arr.length - 1, i + 1)]) / 4);
+      const cM = smoothArr(data.cuedMean), uM = smoothArr(data.uncuedMean);
+      const makeLine = arr => arr.slice(0, maxTrial).map((y, i) => `${i === 0 ? 'M' : 'L'}${xScale(i + 1).toFixed(1)},${yScale(y).toFixed(1)}`).join(' ');
+      const makeBand = (mean, sem) => {
+        const top = mean.slice(0, maxTrial).map((y, i) => `${xScale(i + 1).toFixed(1)},${yScale(Math.min(1, y + sem[i])).toFixed(1)}`);
+        const bot = mean.slice(0, maxTrial).map((y, i) => `${xScale(i + 1).toFixed(1)},${yScale(Math.max(0.2, y - sem[i])).toFixed(1)}`).reverse();
+        return `M${top.join(' L')} L${bot.join(' L')} Z`;
+      };
+
+      let svg = `<svg viewBox="0 0 ${width} ${height}" class="w-full h-auto select-none" xmlns="http://www.w3.org/2000/svg">`;
+      if (highlightRange) {
+        const hx1 = xScale(Math.max(1, highlightRange[0])), hx2 = xScale(Math.min(maxTrial, highlightRange[1]));
+        svg += `<rect x="${hx1}" y="${pad.t}" width="${Math.max(0, hx2 - hx1)}" height="${ph}" fill="#f9d566" opacity="0.28" rx="3"/>`;
+        svg += `<text x="${(hx1 + hx2)/2}" y="${pad.t + 12}" text-anchor="middle" font-size="10" font-weight="600" fill="#9a4b0b">Early learning window</text>`;
+      }
+      svg += `<text x="${width - pad.r}" y="${pad.t - 5}" text-anchor="end" font-size="9.5" fill="#8b949e">synthetic data</text>`;
+      svg += `<line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${pad.t + ph}" stroke="#222" stroke-width="1.3"/>`;
+      svg += `<line x1="${pad.l}" y1="${pad.t + ph}" x2="${pad.l + pw}" y2="${pad.t + ph}" stroke="#222" stroke-width="1.3"/>`;
+      for (let y = 0.2; y <= 1.001; y += 0.1) {
+        const yy = yScale(y);
+        svg += `<line x1="${pad.l - 4}" y1="${yy}" x2="${pad.l}" y2="${yy}" stroke="#222" stroke-width="1.1"/>`;
+        if (!compact || Math.round(y * 10) % 2 === 0) svg += `<text x="${pad.l - 8}" y="${yy + 3.5}" text-anchor="end" font-size="${compact ? 10 : 11}" fill="#333">${y.toFixed(1)}</text>`;
+      }
+      (maxTrial <= 15 ? [5, 10, 15] : [10, 20, 30]).forEach(t => {
+        if (t <= maxTrial) {
+          const xx = xScale(t);
+          svg += `<line x1="${xx}" y1="${pad.t + ph}" x2="${xx}" y2="${pad.t + ph + 4}" stroke="#222" stroke-width="1.1"/>`;
+          svg += `<text x="${xx}" y="${pad.t + ph + 16}" text-anchor="middle" font-size="${compact ? 10 : 11}" fill="#333">${t}</text>`;
+        }
+      });
+      svg += `<text x="${pad.l + pw / 2}" y="${height - 6}" text-anchor="middle" font-size="${compact ? 11 : 12}" fill="#1f2937" font-weight="500">Trials after rule change</text>`;
+      svg += `<text x="15" y="${pad.t + ph / 2}" text-anchor="middle" font-size="${compact ? 11 : 12}" fill="#1f2937" font-weight="500" transform="rotate(-90 15 ${pad.t + ph / 2})">P(correct)</text>`;
+      if (showChance) {
+        const cy = yScale(chanceY);
+        svg += `<line x1="${pad.l}" y1="${cy}" x2="${pad.l + pw}" y2="${cy}" stroke="#6b7280" stroke-width="1.2" stroke-dasharray="4,3"/>`;
+        svg += `<text x="${pad.l + pw - 2}" y="${cy - 5}" text-anchor="end" font-size="10.5" fill="#6b7280">${chanceLabel}</text>`;
+      }
+      if (thresholdY !== null) {
+        const ty = yScale(thresholdY);
+        svg += `<line x1="${pad.l}" y1="${ty}" x2="${pad.l + pw}" y2="${ty}" stroke="#1d5ca8" stroke-width="1.3" stroke-dasharray="5,4"/>`;
+        svg += `<text x="${pad.l + pw - 2}" y="${ty - 5}" text-anchor="end" font-size="10.5" font-weight="600" fill="#1d5ca8">threshold (${thresholdY.toFixed(2)})</text>`;
+      }
+      if (showSubjects) {
+        data.cuedSubjects.forEach(arr => { svg += `<path d="${makeLine(arr)}" fill="none" stroke="${cuedColor}" stroke-width="0.9" opacity="0.22"/>`; });
+        data.uncuedSubjects.forEach(arr => { svg += `<path d="${makeLine(arr)}" fill="none" stroke="${uncuedColor}" stroke-width="0.9" opacity="0.22"/>`; });
+      }
+      if (showControl) svg += `<path d="${makeLine(data.controlMean)}" fill="none" stroke="#2d7a5e" stroke-width="1.8" stroke-dasharray="6,3"/>`;
+      svg += `<path d="${makeBand(cM, data.cuedSem)}" fill="${cuedColor}" opacity="0.14"/>`;
+      svg += `<path d="${makeBand(uM, data.uncuedSem)}" fill="${uncuedColor}" opacity="0.18"/>`;
+      svg += `<path d="${makeLine(cM)}" fill="none" stroke="${cuedColor}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>`;
+      svg += `<path d="${makeLine(uM)}" fill="none" stroke="${uncuedColor}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>`;
+      if (showGapAt && showGapAt <= maxTrial) {
+        const idx = showGapAt - 1, gx = xScale(showGapAt), yc = yScale(cM[idx]), yu = yScale(uM[idx]);
+        const diff = ((cM[idx] - uM[idx]) * 100).toFixed(0);
+        svg += `<line x1="${gx}" y1="${yc}" x2="${gx}" y2="${yu}" stroke="#b34712" stroke-width="2" stroke-dasharray="3,2"/>`;
+        svg += `<circle cx="${gx}" cy="${yc}" r="4" fill="${cuedColor}" stroke="#fff" stroke-width="1.5"/>`;
+        svg += `<circle cx="${gx}" cy="${yu}" r="4" fill="${uncuedColor}" stroke="#fff" stroke-width="1.5"/>`;
+        svg += `<rect x="${gx + 8}" y="${(yc + yu)/2 - 12}" width="92" height="22" rx="5" fill="#b34712"/>`;
+        svg += `<text x="${gx + 54}" y="${(yc + yu)/2 + 3}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">+${diff}% at trial ${showGapAt}</text>`;
+      }
+      const lx = pad.l + pw - (compact ? 116 : 138), ly = pad.t + ph - (showControl ? 48 : 34);
+      svg += `<line x1="${lx}" y1="${ly}" x2="${lx + 16}" y2="${ly}" stroke="${cuedColor}" stroke-width="2.2"/><text x="${lx + 22}" y="${ly + 3.5}" font-size="${compact ? 10 : 11}" fill="#1f2937">Cued rule change</text>`;
+      svg += `<line x1="${lx}" y1="${ly + 16}" x2="${lx + 16}" y2="${ly + 16}" stroke="${uncuedColor}" stroke-width="2.2"/><text x="${lx + 22}" y="${ly + 19.5}" font-size="${compact ? 10 : 11}" fill="#1f2937">Uncued rule change</text>`;
+      if (showControl) svg += `<line x1="${lx}" y1="${ly + 32}" x2="${lx + 16}" y2="${ly + 32}" stroke="#2d7a5e" stroke-width="2" stroke-dasharray="5,2"/><text x="${lx + 22}" y="${ly + 35.5}" font-size="${compact ? 10 : 11}" fill="#2d7a5e">Control (no switch)</text>`;
+      svg += `</svg>`;
+      return { svg, cM, uM };
+    }
+
+    /* ========================================================================
+       TALK CONTENT (Edit SLIDES freely — /remote.js handles everything else!)
+       ======================================================================== */
+    const DISCUSSION_PROMPTS = [
+      'If interactive plots, animations, and handouts take 5 minutes instead of 5 days — which old slide habit would you drop first?',
+      'What is the best AI presentation trick you’ve tried — or your most spectacular AI slide failure?',
+      'Two years from now, what does a great 15-minute lab talk or conference talk actually look like?'
+    ];
+
+    let currentSlide = 0, revealUnlocked = false, notesOpen = false, handoutOpen = false, auditLimit = 45, discussionIdx = 0;
+    let cachedWordCounts = [];
+    const demo1State = { cueBoost: 1.0, noiseScale: 1.0, thresh: 0.80, showSubjects: false, showControl: false, showGap: false };
+    const qaState = {
+      cuedColor: '#1e242b', uncuedColor: '#e07016', showChance: true, thresholdY: null,
+      showSubjects: false, highlightRange: null, showGapAt: null, maxTrial: 30, smooth: false,
+      diffLines: ['  ax.plot(trials, cued, color="#1e242b")', '+ ax.plot(trials, uncued, color="#e07016")', '+ ax.axhline(0.5, ls="--", label="chance")']
+    };
+
+    const SLIDES = [
+      { id: 1, section: 'Opening', title: 'Making slides and presentations with AI', notes: 'Welcome everyone. No AI experience needed. I will share a problem I have, show what I tried, and give you three things to try this week.',
+        render: () => `<div class="w-full h-full flex items-center justify-between px-[7%] py-[8%] gap-8"><div class="w-[54%] space-y-5"><h1 class="slide-title text-[clamp(26px,4.2vw,54px)] leading-[1.08]">Making slides<br/>and presentations<br/>with AI</h1><p class="text-[clamp(12px,1.4vw,18px)] text-[#4a5568]">Ruidong · JazLab, MIT · [Date · venue]</p></div><div class="w-[42%] flex items-center justify-center"><svg viewBox="0 0 360 250" class="w-full max-w-[350px]"><rect x="86" y="18" width="248" height="156" rx="10" fill="#efeae0" stroke="#1b2838" stroke-width="2.5"/><rect x="52" y="54" width="248" height="156" rx="10" fill="#d9d1c2" stroke="#1b2838" stroke-width="2.5"/><rect x="18" y="90" width="248" height="148" rx="10" fill="#fdfbf6" stroke="#1b2838" stroke-width="2.5"/><rect x="36" y="108" width="136" height="14" rx="2" fill="#1b2838"/><line x1="36" y1="138" x2="36" y2="210" stroke="#1b2838" stroke-width="2.5"/><line x1="36" y1="210" x2="152" y2="210" stroke="#1b2838" stroke-width="2.5"/><rect x="48" y="182" width="18" height="27" fill="#1d5ca8"/><rect x="76" y="160" width="18" height="49" fill="#1d5ca8"/><rect x="104" y="142" width="18" height="67" fill="#1d5ca8"/><path d="M202 162 L185 186 L199 186 L193 207 L213 181 L199 181 Z" fill="none" stroke="#b34712" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></svg></div></div>` },
+      { id: 2, section: 'Opening', title: 'I spend too long making slides', notes: 'Confession: I spend too long making slides. Tell one real late-night story before a real talk — maybe some of you know this night.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(21px,3vw,39px)]">I spend too long making slides</h2><div class="flex-1 flex items-center justify-center"><svg viewBox="0 0 760 280" class="w-full max-w-[720px]"><circle cx="110" cy="78" r="46" fill="#fdfbf6" stroke="#1b2838" stroke-width="5"/><line x1="110" y1="78" x2="110" y2="46" stroke="#1b2838" stroke-width="5" stroke-linecap="round"/><line x1="110" y1="78" x2="94" y2="60" stroke="#1b2838" stroke-width="5" stroke-linecap="round"/><path d="M225 46 A26 26 0 1 0 250 82 A20 20 0 1 1 225 46 Z" fill="#f9d566"/><circle cx="165" cy="186" r="24" fill="#b34712"/><circle cx="157" cy="182" r="3" fill="#fff"/><circle cx="173" cy="182" r="3" fill="#fff"/><line x1="156" y1="194" x2="174" y2="194" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M126 254 A39 39 0 0 1 204 254 Z" fill="#b34712"/><rect x="305" y="148" width="168" height="106" rx="8" fill="#1b2838"/><rect x="315" y="158" width="148" height="86" rx="4" fill="#fdfbf6"/><rect x="326" y="168" width="76" height="8" fill="#1b2838"/><rect x="326" y="183" width="124" height="5" fill="#9aa5b1"/><rect x="326" y="193" width="112" height="5" fill="#9aa5b1"/><rect x="326" y="203" width="124" height="5" fill="#9aa5b1"/><rect x="326" y="213" width="96" height="5" fill="#9aa5b1"/><rect x="326" y="223" width="118" height="5" fill="#9aa5b1"/><rect x="285" y="253" width="208" height="8" rx="4" fill="#4a5568"/><g transform="translate(535 76) rotate(-7)"><rect width="102" height="68" rx="6" fill="#fdfbf6" stroke="#1b2838" stroke-width="2.5"/><path d="M14 56 L14 14 M14 56 L88 56" stroke="#1b2838" stroke-width="2"/><path d="M14 55 Q24 22 84 18" fill="none" stroke="#1d5ca8" stroke-width="3"/></g><g transform="translate(612 162) rotate(7)"><rect width="102" height="68" rx="6" fill="#fdfbf6" stroke="#1b2838" stroke-width="2.5"/><path d="M14 56 L14 14 M14 56 L88 56" stroke="#1b2838" stroke-width="2"/><path d="M14 55 Q28 24 84 22" fill="none" stroke="#1d5ca8" stroke-width="3"/></g><g transform="translate(520 190) rotate(3)"><rect width="102" height="68" rx="6" fill="#fdfbf6" stroke="#1b2838" stroke-width="2.5"/><path d="M14 56 L14 14 M14 56 L88 56" stroke="#1b2838" stroke-width="2"/><path d="M14 55 Q26 20 84 20" fill="none" stroke="#1d5ca8" stroke-width="3"/></g><line x1="65" y1="264" x2="695" y2="264" stroke="#1b2838" stroke-width="7"/></svg></div><p class="text-[clamp(12px,1.35vw,17px)] text-[#4a5568]">[One real night before one real talk: fill in]</p></div>` },
+      { id: 3, section: 'Opening', title: "I know what a good talk looks like, but I can't make one every time", notes: 'On the left: short title, one big plot, one takeaway. On the right: what I make when rushed — six tiny plots and a wall of text.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(19px,2.8vw,36px)]">I know what a good talk looks like, but I can’t make one every time</h2><div class="grid grid-cols-2 gap-6 flex-1 my-5"><div class="warm-card flex flex-col items-center justify-center p-6 gap-4"><svg viewBox="0 0 230 145" class="w-[74%] max-w-[230px]"><rect x="4" y="4" width="222" height="137" rx="8" fill="#fff" stroke="#1b2838" stroke-width="2.5"/><rect x="20" y="18" width="110" height="12" rx="2" fill="#1b2838"/><path d="M36 42 L36 108 L184 108" fill="none" stroke="#1b2838" stroke-width="2"/><path d="M36 107 Q58 55 180 48" fill="none" stroke="#1d5ca8" stroke-width="4" stroke-linecap="round"/><rect x="20" y="119" width="190" height="9" rx="4.5" fill="#9aa5b1"/></svg><div class="text-[clamp(14px,1.55vw,20px)] font-bold">What I know</div></div><div class="warm-card flex flex-col items-center justify-center p-6 gap-4"><svg viewBox="0 0 230 145" class="w-[74%] max-w-[230px]"><rect x="4" y="4" width="222" height="137" rx="8" fill="#fff" stroke="#1b2838" stroke-width="2.5"/><rect x="14" y="13" width="66" height="5" fill="#1b2838"/>${[0,1,2].map(c=>[0,1].map(r=>`<rect x="${14+c*68}" y="${23+r*33}" width="62" height="28" fill="none" stroke="#9aa5b1" stroke-width="1.2"/><polyline points="${18+c*68},${46+r*33} ${32+c*68},${34+r*33} ${46+c*68},${39+r*33} ${70+c*68},${28+r*33}" fill="none" stroke="#1d5ca8" stroke-width="1.8"/>`).join('')).join('')}<rect x="14" y="96" width="202" height="3.5" fill="#9aa5b1"/><rect x="14" y="103" width="186" height="3.5" fill="#9aa5b1"/><rect x="14" y="110" width="198" height="3.5" fill="#9aa5b1"/><rect x="14" y="117" width="174" height="3.5" fill="#9aa5b1"/><rect x="14" y="124" width="192" height="3.5" fill="#9aa5b1"/></svg><div class="text-[clamp(14px,1.55vw,20px)] font-bold">What I make when rushed</div></div></div></div>` },
+      { id: 4, section: 'Opening', title: 'Two problems behind it', notes: 'Problem 1: habit requires repetition, and talks are rare so lessons fade. Problem 2: figures live in scripts, notebooks, or AI chats — not in the slides.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(22px,3vw,39px)]">Two problems behind it</h2><div class="grid grid-cols-2 gap-7 flex-1 my-8 items-stretch"><div class="warm-card p-7 flex flex-col justify-center gap-3"><div class="text-xs font-bold uppercase tracking-wider text-[#b34712]">Problem 1</div><div class="text-[clamp(18px,2.1vw,27px)] font-extrabold">Habit requires repetition</div><p class="text-[clamp(13px,1.4vw,18px)] text-[#4a5568]">Talks are rare, so the lessons fade between one presentation and the next.</p></div><div class="warm-card p-7 flex flex-col justify-center gap-3"><div class="text-xs font-bold uppercase tracking-wider text-[#1d5ca8]">Problem 2</div><div class="text-[clamp(18px,2.1vw,27px)] font-extrabold">Figures are scattered</div><p class="text-[clamp(13px,1.4vw,18px)] text-[#4a5568]">They live in a script, a notebook, or AI chats — every tweak means hunting first.</p></div></div></div>` },
+      { id: 5, section: 'Opening', title: 'By the end: three things to try this week', notes: 'My promise (Winston rule #1!). Three concrete things you can try independently — you do not need all three.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(21px,2.9vw,37px)]">By the end: three things to try this week</h2><div class="grid grid-cols-3 gap-5 flex-1 my-8">${[['1','Check your own rules','Fixes forgotten habits — works on slides you already have.'],['2','Own your data-to-slide pipeline','Fixes scattered figures — optional; I’ll tell you when to skip it.'],['3','A second pair of eyes','Goes beyond slides, straight to what you actually say.']].map(([n,h,p])=>`<div class="warm-card p-6"><div class="w-9 h-9 rounded-full bg-[#1d5ca8] text-white font-bold flex items-center justify-center text-base mb-4">${n}</div><div class="text-[clamp(15px,1.7vw,22px)] font-extrabold leading-snug mb-2">${h}</div><p class="text-[clamp(12px,1.2vw,15px)] text-[#4a5568] leading-relaxed">${p}</p></div>`).join('')}</div></div>` },
+      { id: 6, section: 'Lesson 1 · Rules', title: 'Write the note once. AI makes sure you follow it.', notes: 'One central picture for the whole talk. You write the fridge note on a good day; AI enforces it on a tired night — a program for countable rules, an agent for judgement.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(21px,2.9vw,37px)]">Write the note once. AI makes sure you follow it.</h2><div class="flex items-center justify-between gap-5 flex-1 my-4"><div class="sticky-note w-[28%] p-6 space-y-2.5"><div class="text-[clamp(16px,1.75vw,22px)] font-extrabold">Note to self</div><div class="text-[clamp(13px,1.3vw,17px)]">Big fonts</div><div class="text-[clamp(13px,1.3vw,17px)]">Few words</div><div class="text-[clamp(13px,1.3vw,17px)]">Say it three times</div></div><div class="text-2xl font-bold">→</div><div class="flex-1 flex flex-col gap-4"><div class="warm-card p-5 flex items-center gap-6"><svg viewBox="0 0 110 56" class="w-24 shrink-0"><ellipse cx="32" cy="28" rx="24" ry="18" fill="#fff" stroke="#1b2838" stroke-width="4"/><circle cx="38" cy="28" r="7.5" fill="#1d5ca8"/><ellipse cx="78" cy="28" rx="24" ry="18" fill="#fff" stroke="#1b2838" stroke-width="4"/><circle cx="84" cy="28" r="7.5" fill="#1d5ca8"/></svg><div><div class="text-[clamp(16px,1.75vw,22px)] font-extrabold">A second pair of eyes</div><div class="text-[clamp(12px,1.25vw,16px)] text-[#4a5568]">An agent reviews what needs judgement</div></div></div><div class="warm-card p-5 flex items-center gap-6"><svg viewBox="0 0 70 70" class="w-24 h-16 shrink-0"><g transform="translate(35,35)" fill="#1b2838"><circle r="19"/>${[0,45,90,135,180,225,270,315].map(a=>`<rect x="-5" y="-27" width="10" height="12" rx="2" transform="rotate(${a})"/>`).join('')}<circle r="8.5" fill="#fdfbf6"/></g></svg><div><div class="text-[clamp(16px,1.75vw,22px)] font-extrabold">A program</div><div class="text-[clamp(12px,1.25vw,16px)] text-[#4a5568]">Code checks what can be counted</div></div></div></div></div></div>` },
+      { id: 7, section: 'Lesson 1 · Rules', title: 'Rules we know, and often break', notes: 'We do not break these because we disagree with them. We break them because we are busy. Can we automate rule checking with AI?',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(22px,3vw,39px)]">Rules we know, and often break</h2><div class="grid grid-cols-3 gap-5 my-5">${[['Too much text','Walls of bullets compete with your voice'],['Too many plots','Six panels shrink until nobody can read an axis'],['No transition','Slides jump topics without linking the story']].map(([h,p])=>`<div class="warm-card p-6 flex flex-col gap-2"><div class="w-8 h-1.5 rounded-full bg-[#b34712] mb-2"></div><div class="text-[clamp(17px,1.85vw,23px)] font-extrabold">${h}</div><p class="text-[clamp(12px,1.2vw,15px)] text-[#4a5568]">${p}</p></div>`).join('')}</div><p class="text-center text-[clamp(15px,1.65vw,21px)] font-bold text-[#1d5ca8]">Can we automate rule checking with AI?</p></div>` },
+      { id: 8, section: 'Lesson 1 · Rules', title: 'Some rules are not universal', notes: 'Which rules should you check? Not mine — yours. If you do not know your rules, give Claude your old slides and ask what patterns it sees.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(22px,3vw,39px)]">Some rules are not universal</h2><div class="grid grid-cols-3 gap-5 my-4 flex-1"><div class="warm-card p-5 flex flex-col items-center justify-center gap-4"><svg viewBox="0 0 210 95" class="w-full max-w-[200px]"><circle cx="34" cy="40" r="16" fill="#b34712"/><path d="M12 86 A22 22 0 0 1 56 86 Z" fill="#b34712"/><rect x="74" y="14" width="126" height="72" rx="6" fill="#fff" stroke="#1b2838" stroke-width="2.2"/><rect x="84" y="23" width="56" height="7" fill="#1b2838"/><path d="M88 37 L88 76 L186 76" fill="none" stroke="#1b2838" stroke-width="1.8"/><path d="M88 75 Q108 42 184 39" fill="none" stroke="#1d5ca8" stroke-width="3"/></svg><div class="text-center font-bold text-[clamp(13px,1.4vw,18px)]">One plot, few words</div></div><div class="warm-card p-5 flex flex-col items-center justify-center gap-4"><svg viewBox="0 0 210 95" class="w-full max-w-[200px]"><circle cx="34" cy="40" r="16" fill="#1d5ca8"/><path d="M12 86 A22 22 0 0 1 56 86 Z" fill="#1d5ca8"/><rect x="74" y="14" width="126" height="72" rx="6" fill="#fff" stroke="#1b2838" stroke-width="2.2"/><rect x="84" y="22" width="46" height="6" fill="#1b2838"/>${[34,42,50,58,66,74].map(y=>`<rect x="84" y="${y}" width="${98-(y%12)}" height="3.5" fill="#9aa5b1"/>`).join('')}</svg><div class="text-center font-bold text-[clamp(13px,1.4vw,18px)]">A block of text, read aloud</div></div><div class="warm-card p-5 flex flex-col items-center justify-center gap-4"><svg viewBox="0 0 210 95" class="w-full max-w-[200px]"><circle cx="34" cy="40" r="16" fill="#2d7a5e"/><path d="M12 86 A22 22 0 0 1 56 86 Z" fill="#2d7a5e"/><rect x="74" y="14" width="126" height="72" rx="6" fill="#fff" stroke="#1b2838" stroke-width="2.2"/><circle cx="105" cy="48" r="18" fill="#f9d566"/><rect x="134" y="26" width="52" height="24" rx="4" fill="#b34712"/><polygon points="136,59 162,59 149,77" fill="#1d5ca8"/></svg><div class="text-center font-bold text-[clamp(13px,1.4vw,18px)]">Bold shapes and motion</div></div></div><p class="text-[clamp(13px,1.4vw,18px)] font-bold">AI can learn your rules from your own past slides.</p></div>` },
+      { id: 9, section: 'Lesson 1 · Rules', title: 'Themes are terrible', notes: 'PowerPoint themes pick someone else’s look from a menu. They know nothing about what you put on the slide. Rules check content, not decoration.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(22px,3vw,39px)]">Themes are terrible</h2><div class="grid grid-cols-4 gap-4 my-5 flex-1 items-center">${[['#1b365d','#fff','Corporate Wave'],['#5c1d2e','#fce7f3','Faceted Ribbon'],['#2f4f4f','#e6fffa','Ion Boardroom'],['#4a3b2c','#fef3c7','Woodgrain Classic']].map(([bg,fg,name])=>`<div class="rounded-xl overflow-hidden border border-[#d9d2c7] shadow-sm relative"><div class="aspect-video flex flex-col justify-center p-4" style="background:${bg};color:${fg}"><div class="font-bold text-sm opacity-90">${name}</div><div class="w-12 h-1 mt-1.5 rounded bg-current opacity-50"></div></div><div class="absolute inset-0 flex items-center justify-center pointer-events-none"><div class="w-[80%] h-0.5 bg-[#b34712]/70 rotate-[-18deg]"></div></div></div>`).join('')}</div><p class="text-center text-[clamp(14px,1.45vw,19px)] text-[#4a5568]">A theme picks somebody else’s look. <strong class="text-[#14213d]">Your rules check what is on each slide.</strong></p></div>` },
+      { id: 10, section: 'Lesson 1 · Rules', title: 'A checker that never gets tired', notes: 'I get tired at 2 a.m. A checker never gets tired. Seven slides pass, one gets flagged — every single time.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(22px,3vw,39px)]">A checker that never gets tired</h2><div class="grid grid-cols-8 gap-3 my-auto">${[0,1,2,3,4,5,6,7].map(i=>{const f=i===3;return `<div class="flex flex-col items-center gap-3"><div class="w-full aspect-square rounded-lg p-2.5 flex flex-col justify-center gap-1.5 ${f?'bg-[#f6b26b]':'bg-[#3d4d66]'}"><div class="h-1.5 rounded ${f?'bg-[#1b2838] w-full':'bg-[#8d99ae] w-[75%]'}"></div><div class="h-1.5 rounded ${f?'bg-[#1b2838] w-full':'bg-[#8d99ae] w-[90%]'}"></div>${f?'<div class="h-1.5 rounded bg-[#1b2838] w-full"></div>':''}</div><div class="${f?'text-[#b34712]':'text-[#1d5ca8]'} text-xl font-bold">${f?'⚠':'✓'}</div></div>`;}).join('')}</div><p class="text-[clamp(13px,1.4vw,18px)] text-[#4a5568]">It reads every slide, every time.</p></div>` },
+      { id: 11, section: 'Lesson 1 · Rules', title: 'A rule check flags the block of text', notes: 'Mockup with synthetic data: 61 words vs. limit 50. The checker suggests a fix, but it does not touch the slide — I decide.',
+        render: () => { const { svg } = buildLearningCurveSVG({ width: 320, height: 245, compact: true }); return `<div class="w-full h-full flex flex-col justify-between px-[6%] py-[5.5%]"><h2 class="slide-title text-center text-[clamp(20px,2.8vw,36px)]">A rule check flags the block of text</h2><div class="flex items-center gap-5 flex-1 mt-4"><div class="w-[64%] bg-[#e6e7e9] border border-[#cbd2d9] rounded-lg p-4 grid grid-cols-12 gap-3 items-center shadow-inner"><div class="col-span-6 space-y-2"><div class="font-extrabold text-[#111] text-[clamp(14px,1.45vw,18px)]">Behavior</div><div class="font-bold text-[#222] text-[clamp(10px,1vw,13px)]">Learning after a rule change</div><div class="border-2 border-[#b34712] bg-[#f7e3d7]/40 rounded-md p-2 text-[clamp(8.5px,0.8vw,11px)] text-[#1f2937] space-y-1.5 italic leading-snug"><div>• Measured P(correct) per trial after a rule change, cued vs uncued; expected faster learning when cued.</div><div>• Cued starts higher (0.43 vs 0.28) and reaches 0.8 in 5 trials vs 13.</div><div>• By trial 30 both are near 0.9: cueing speeds learning, not plateau.</div></div></div><div class="col-span-6 bg-white/80 rounded p-1 border border-[#9f7aea]/50">${svg}</div></div><div class="w-[34%] space-y-3"><div class="inline-block px-4 py-2 rounded-lg bg-[#b34712] text-white font-bold text-[clamp(13px,1.35vw,17px)]">61 words, limit 50</div><div class="warm-card p-4 space-y-1.5"><div class="font-extrabold text-[clamp(14px,1.45vw,18px)]">Suggested fix</div><div class="text-[clamp(12px,1.15vw,15px)] text-[#2d3748]">Move the text to notes</div><div class="text-[clamp(12px,1.15vw,15px)] text-[#2d3748]">Make the plot bigger</div><div class="text-[clamp(12px,1.15vw,15px)] text-[#2d3748]">Keep one takeaway line</div></div></div></div></div>`; } },
+      { id: 12, section: 'Lesson 1 · Rules', title: 'After the fix: one plot, one takeaway', notes: 'Twelve words. Check passed. Nothing was lost — the words I took off the slide are the words I am going to say.',
+        render: () => { const { svg } = buildLearningCurveSVG({ width: 380, height: 245, compact: true }); return `<div class="w-full h-full flex flex-col justify-between px-[6%] py-[5.5%]"><h2 class="slide-title text-center text-[clamp(20px,2.8vw,36px)]">After the fix: one plot, one takeaway</h2><div class="flex items-center gap-5 flex-1 mt-4"><div class="w-[64%] bg-[#f4f5f7] border border-[#cbd2d9] rounded-lg p-4 flex flex-col items-center justify-center shadow-inner"><div class="font-extrabold text-[#111] text-[clamp(13px,1.3vw,16px)] mb-1">Cueing speeds learning, not the plateau.</div><div class="w-[82%] bg-white rounded p-1.5 border border-[#e2e8f0]">${svg}</div></div><div class="w-[34%] space-y-3"><div class="inline-block px-4 py-2 rounded-lg bg-[#2d7a5e] text-white font-bold text-[clamp(13px,1.35vw,17px)]">Check passed · 12 words</div><div class="warm-card p-4 space-y-1.5"><div class="font-extrabold text-[clamp(14px,1.45vw,18px)]">What changed</div><div class="text-[clamp(12px,1.15vw,15px)] text-[#2d3748]">Text moved to notes</div><div class="text-[clamp(12px,1.15vw,15px)] text-[#2d3748]">Plot redrawn wider</div><div class="text-[clamp(12px,1.15vw,15px)] text-[#2d3748]">One takeaway line kept</div></div></div></div></div>`; } },
+      { id: 13, section: 'Lesson 2 · Pipeline', title: 'Changing one figure is a tedious loop', notes: 'Second problem: scattered figures. Spot one color tweak while practicing → find script → replot → export → paste & resize → spot another tweak.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(22px,3vw,39px)]">Changing one figure is a tedious loop</h2><div class="flex items-center justify-center gap-4 my-auto">${[['1','Find the figure','Dig through scripts & notebooks'],['2','Replot it','Re-run and export PNG/SVG'],['3','Move into slides','Paste, crop, resize — repeat']].map(([n,t,s],i)=>`<div class="human-box p-3.5 w-[29%]"><div class="text-xs font-bold text-[#b34712] mb-1.5">Human</div><div class="human-inner p-4 space-y-1"><div class="text-xs font-bold text-[#5b6472]">${n}</div><div class="text-[clamp(15px,1.6vw,20px)] font-extrabold">${t}</div><div class="text-[clamp(11px,1.1vw,14px)] text-[#4a5568]">${s}</div></div></div>${i<2?'<div class="text-xl font-bold">→</div>':''}`).join('')}</div><p class="text-center text-[clamp(15px,1.65vw,21px)] font-bold text-[#1d5ca8]">Can we simplify this loop?</p></div>` },
+      { id: 14, section: 'Lesson 2 · Pipeline', title: 'Point at the plot and describe the change', notes: 'Human owns choice (steps 1–2). Agent edits the plotting code (step 3). A deterministic slide builder redraws the slide (step 4).',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[6%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(21px,2.9vw,37px)]">Point at the plot and describe the change</h2><div class="flex items-stretch justify-between gap-3 my-auto"><div class="human-box p-3.5 w-[44%] flex flex-col"><div class="text-xs font-bold text-[#b34712] mb-2">Human</div><div class="grid grid-cols-2 gap-2.5 flex-1"><div class="human-inner p-3.5 flex flex-col justify-center"><div class="text-xs font-bold text-[#5b6472]">1</div><div class="text-[clamp(14px,1.45vw,18px)] font-extrabold">Click a plot</div></div><div class="human-inner p-3.5 flex flex-col justify-center"><div class="text-xs font-bold text-[#5b6472]">2</div><div class="text-[clamp(14px,1.45vw,18px)] font-extrabold">Describe the change</div></div></div></div><div class="self-center font-bold text-lg">→</div><div class="agent-box p-3.5 w-[25%] flex flex-col"><div class="text-xs font-bold text-[#1d5ca8] mb-2">Agent</div><div class="agent-inner p-3.5 flex-1 flex flex-col justify-center"><div class="text-xs font-bold text-[#5b6472]">3</div><div class="text-[clamp(14px,1.45vw,18px)] font-extrabold">Change the code</div></div></div><div class="self-center font-bold text-lg">→</div><div class="builder-box p-3.5 w-[25%] flex flex-col"><div class="text-xs font-bold text-[#4a5568] mb-2">Slide builder</div><div class="builder-inner p-3.5 flex-1 flex flex-col justify-center"><div class="text-xs font-bold text-[#5b6472]">4</div><div class="text-[clamp(14px,1.45vw,18px)] font-extrabold">Rebuild the slide</div></div></div></div><p class="text-[clamp(12px,1.3vw,16px)] text-[#4a5568]">Judgement stays human; redrawing is deterministic and reproducible.</p></div>` },
+      { id: 15, section: 'Lesson 2 · Pipeline', title: 'Arbitrary changes done quickly and precisely', notes: 'There is no menu button for "dashed line at chance." Because the request reaches the code that draws the figure, any change is possible.',
+        render: () => { const b = buildLearningCurveSVG({ width: 300, height: 245, uncuedColor: '#8a8f98', showChance: false, compact: true }); const a = buildLearningCurveSVG({ width: 300, height: 245, uncuedColor: '#e07016', showChance: true, compact: true }); return `<div class="w-full h-full flex flex-col justify-between px-[5.5%] py-[5.5%]"><h2 class="slide-title text-center text-[clamp(20px,2.8vw,36px)]">Arbitrary changes done quickly and precisely</h2><div class="flex items-center justify-between gap-2 my-auto"><div class="w-[32%]">${b.svg}</div><div class="text-lg font-bold">→</div><div class="w-[30%] space-y-2"><span class="inline-block px-3 py-1 rounded-md bg-[#f7e3d7] text-[#b34712] text-xs font-bold">Human</span><div class="px-3.5 py-2 rounded-lg bg-[#1b2838] text-white text-[clamp(11px,1.05vw,14px)] font-medium">“Add a dashed line at chance”</div><div class="px-3.5 py-2 rounded-lg bg-[#1b2838] text-white text-[clamp(11px,1.05vw,14px)] font-medium">“Make the uncued curve orange”</div><div class="px-3.5 py-1.5 rounded-lg bg-[#dcebfa] text-[#1d5ca8] text-[clamp(11px,1.05vw,14px)] font-bold">Agent changes the code</div><div class="px-3.5 py-1.5 rounded-lg bg-[#ece8e1] text-[clamp(11px,1.05vw,14px)] font-bold">Slide builder redraws</div></div><div class="text-lg font-bold">→</div><div class="w-[32%]">${a.svg}</div></div><p class="text-[clamp(12px,1.3vw,16px)] text-[#4a5568]">The request reaches the code that draws the figure, not a menu of features.</p></div>`; } },
+      { id: 16, section: 'Lesson 2 · Pipeline', title: 'The work-freedom tradeoff', notes: 'You do not need to build your own tool. Start wherever you feel comfortable — Lesson 1 and Lesson 3 work even on option 1.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[6%] py-[6%]"><h2 class="slide-title text-center text-[clamp(22px,3vw,39px)]">The work-freedom tradeoff</h2><div class="grid grid-cols-4 gap-4 my-4 flex-1">${[['1','Claude with Google Slides','Keep the slides you have'],['2','Claude’s own slides','Ask for a deck, then edit'],['3','A tool someone built','Livedeck, Manimble'],['4','Your own slide program','Build what you want']].map(([n,t,s])=>`<div class="warm-card p-5 flex flex-col justify-between"><div class="text-[clamp(16px,1.65vw,21px)] font-extrabold text-[#1d5ca8]">${n}</div><div><div class="text-[clamp(14px,1.4vw,18px)] font-extrabold leading-snug mb-1.5">${t}</div><div class="text-[clamp(11px,1.1vw,14px)] text-[#4a5568]">${s}</div></div></div>`).join('')}</div><div class="space-y-1.5"><div class="w-full h-1 bg-[#1b2838] relative rounded-full"><div class="absolute right-0 top-1/2 -translate-y-1/2 w-0 h-0 border-l-[10px] border-l-[#1b2838] border-y-[6px] border-y-transparent"></div></div><div class="flex justify-between text-[clamp(11px,1.1vw,14px)] font-bold"><span>Less work · Less freedom to customize</span><span>More work · More freedom to customize</span></div></div></div>` },
+      { id: 17, section: 'Lesson 2 · Pipeline', title: 'In practice: Livedeck in three beats', notes: 'Click the plot, type the request, code updates and slide redraws — I never left the slide.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[6%] py-[6%]"><h2 class="slide-title text-center text-[clamp(20px,2.8vw,36px)]">In practice: Livedeck in three beats</h2><div class="grid grid-cols-3 gap-4 my-5 flex-1"><div class="warm-card p-4 flex flex-col justify-between"><div class="text-xs font-bold uppercase tracking-wider text-[#b34712]">Step 1 · Select</div><div class="my-3 rounded-lg border-2 border-dashed border-[#1d5ca8] bg-white p-3 text-center"><div class="text-xs font-bold mb-1">figures/learning-curve/draw.py</div><div class="text-[11px] text-[#1d5ca8] font-medium">Plot selected on canvas</div></div><div class="text-[clamp(12px,1.15vw,15px)] text-[#4a5568]">Click the plot so the agent knows which script owns it.</div></div><div class="warm-card p-4 flex flex-col justify-between"><div class="text-xs font-bold uppercase tracking-wider text-[#b34712]">Step 2 · Ask</div><div class="my-3 rounded-lg bg-[#1b2838] text-white p-3 text-xs leading-relaxed">“Add a dashed horizontal line at chance, 0.5, labelled chance.”</div><div class="text-[clamp(12px,1.15vw,15px)] text-[#4a5568]">Describe the edit in plain English — right beside the slide.</div></div><div class="warm-card p-4 flex flex-col justify-between"><div class="text-xs font-bold uppercase tracking-wider text-[#2d7a5e]">Steps 3–4 · Rebuild</div><div class="my-3 rounded-lg bg-[#edf7f2] border border-[#2d7a5e]/40 p-3 mono text-[10.5px] space-y-1"><div class="text-[#2d7a5e] font-bold">+ ax.axhline(0.5, ls="--")</div><div class="text-[#2d7a5e] font-bold">+ ax.text(30, 0.52, "chance")</div><div class="text-[#4a5568]">✓ Slide redrawn automatically</div></div><div class="text-[clamp(12px,1.15vw,15px)] text-[#4a5568]">Code updated, slide rebuilt. I never left the deck.</div></div></div><p class="text-[clamp(12px,1.2vw,15px)] text-[#4a5568]">Optional: start small by linking just one key figure in your next talk to its script.</p></div>` },
+      { id: 18, section: 'Lesson 2 · Pipeline', title: 'Another lab built the same idea', notes: 'Manimble from the Pachter lab: slides on the left, canvas in the middle, Python/Manim code on the right. Notice what code-backed slides unlock: motion and interactivity.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[6%] py-[6%]"><h2 class="slide-title text-center text-[clamp(21px,2.9vw,37px)]">Another lab built the same idea</h2><div class="my-4 flex-1 rounded-xl border border-[#cbd2d9] bg-[#f8fafc] overflow-hidden grid grid-cols-12 shadow-sm"><div class="col-span-2 bg-[#f1f5f9] border-r border-[#cbd2d9] p-2.5 space-y-2"><div class="text-[10px] font-bold text-[#64748b] uppercase">Slides</div><div class="h-10 rounded bg-[#1e293b] border-2 border-[#e07016]"></div><div class="h-10 rounded bg-[#1e293b] opacity-60"></div><div class="h-10 rounded bg-[#1e293b] opacity-60"></div></div><div class="col-span-6 p-4 flex items-center justify-center bg-[#e2e8f0]/60"><div class="w-full aspect-video rounded-md bg-[#111827] text-white p-4 flex flex-col items-center justify-center gap-2"><div class="text-xs px-2 py-0.5 border border-[#e07016] text-[#cbd5e1]">Transcription and degradation</div><div class="text-lg italic font-serif text-[#93c5fd]">m* = k / γ</div><svg viewBox="0 0 180 54" class="w-40"><path d="M12 46 L12 8 M12 46 L168 46" stroke="#64748b" stroke-width="1.5"/><path d="M12 45 Q40 14 162 12" fill="none" stroke="#60a5fa" stroke-width="2.5"/></svg></div></div><div class="col-span-4 bg-white border-l border-[#cbd2d9] p-3 flex flex-col justify-center"><div class="text-[10px] font-bold text-[#64748b] uppercase mb-1.5">PYTHON · slides.py</div><pre class="mono text-[9.5px] leading-relaxed text-[#334155] whitespace-pre-wrap">class Kinetics(Deck):
+  def construct(self):
+    self.play(Write(ode))
+    curve = axes.plot(
+      lambda t: 1 - np.exp(-t)
+    )
+    self.play(Create(curve))</pre></div></div><div><div class="text-[clamp(15px,1.65vw,21px)] font-extrabold">Reinventing the wheel is fine?</div><div class="text-[clamp(11px,1.1vw,14px)] text-[#4a5568]">Manimble · Pachter lab · pachterlab.github.io/Manimble</div></div></div>` },
+      { id: 19, section: 'Lesson 3 · Rehearsal', title: 'Ask an agent to be a test audience', notes: 'Most of a talk is what you say. Record yourself aloud, give the agent ONLY the transcript — no slides, no notes — and ask: "What was my talk about?"',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[6%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(22px,3vw,39px)]">Ask an agent to be a test audience</h2><div class="flex items-stretch justify-between gap-3 my-auto"><div class="human-box p-3.5 w-[30%]"><div class="text-xs font-bold text-[#b34712] mb-2">Human</div><div class="human-inner p-4 flex flex-col items-start gap-2.5"><div class="text-3xl">🗣️</div><div class="text-xs font-bold text-[#5b6472]">1</div><div class="text-[clamp(15px,1.55vw,20px)] font-extrabold">Rehearse aloud</div></div></div><div class="self-center text-xl font-bold">→</div><div class="agent-box p-3.5 w-[30%]"><div class="text-xs font-bold text-[#1d5ca8] mb-2">Agent</div><div class="agent-inner p-4 flex flex-col items-start gap-2.5"><div class="text-3xl">🤖</div><div class="text-xs font-bold text-[#5b6472]">2</div><div class="text-[clamp(15px,1.55vw,20px)] font-extrabold">Play my audience</div></div></div><div class="self-center text-xl font-bold">→</div><div class="human-box p-3.5 w-[30%]"><div class="text-xs font-bold text-[#b34712] mb-2">Human</div><div class="human-inner p-4 flex flex-col items-start gap-2.5"><div class="text-3xl">📋</div><div class="text-xs font-bold text-[#5b6472]">3</div><div class="text-[clamp(15px,1.55vw,20px)] font-extrabold">Choose the fixes</div></div></div></div><p class="text-[clamp(13px,1.4vw,18px)] text-[#4a5568]">No slides and no notes: only my words. Ask it to tell you what you meant.</p></div>` },
+      { id: 20, section: 'Rules & Taste', title: 'I choose which rules get checked', notes: 'Patrick Winston’s "How to Speak" on the left; my rules on the right. Because the pipeline is mine, the list of what gets checked is mine to edit.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(22px,3vw,39px)]">I choose which rules get checked</h2><div class="flex items-center justify-between gap-6 my-auto"><div class="sticky-note w-[38%] p-6 space-y-2"><div class="text-[clamp(16px,1.75vw,22px)] font-extrabold">Winston’s rules</div><div class="text-[clamp(13px,1.3vw,17px)]">Open with a promise</div><div class="text-[clamp(13px,1.3vw,17px)]">Say it three times</div><div class="text-[clamp(13px,1.3vw,17px)]">Build a fence</div><div class="text-[clamp(13px,1.3vw,17px)]">End on contributions</div></div><div class="flex items-center gap-3 text-2xl font-bold"><span>→</span><span class="text-4xl">✏️</span><span>→</span></div><div class="sticky-note w-[38%] p-6 space-y-2"><div class="text-[clamp(16px,1.75vw,22px)] font-extrabold">My rules</div><div class="text-[clamp(13px,1.3vw,17px)]">Say it three times</div><div class="text-[clamp(13px,1.3vw,17px)]">No slide of only text</div><div class="text-[clamp(13px,1.3vw,17px)]">One sentence per slide</div><div class="text-[clamp(13px,1.3vw,17px)]">Number every slide</div></div></div><p class="text-[clamp(13px,1.4vw,18px)] text-[#4a5568]">Because the pipeline is mine, the list of what gets checked is mine to edit.</p></div>` },
+      { id: 21, section: 'The Pivot', title: 'Which rules are about human brains — and which were production cost?', notes: 'PAUSE HERE. Still looks like a quiet, static slide. Winston’s rules are about human attention — those stay. Static plots, subplot grids, and 30 hidden backup slides only existed because making visuals took days.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[7%] py-[6.5%]"><h2 class="slide-title text-center text-[clamp(19px,2.65vw,34px)]">Which rules are about human brains — and which were production cost?</h2><div class="grid grid-cols-2 gap-6 my-5 flex-1"><div class="sticky-note p-6 flex flex-col justify-center gap-2.5"><div class="text-xs font-bold uppercase tracking-wider opacity-75">Keep · Human attention</div><div class="text-[clamp(16px,1.8vw,23px)] font-extrabold">Human brains haven’t changed</div><ul class="text-[clamp(13px,1.25vw,16px)] space-y-1.5 mt-1"><li>• Open with a promise, end on contributions</li><li>• Say your core idea three times</li><li>• Keep the screen uncluttered</li></ul></div><div class="human-box p-6 flex flex-col justify-center gap-2.5 border border-[#c75e28]/40"><div class="text-xs font-bold uppercase tracking-wider text-[#b34712]">Rethink · Production cost</div><div class="text-[clamp(16px,1.8vw,23px)] font-extrabold">Artifacts used to take days</div><ul class="text-[clamp(13px,1.25vw,16px)] text-[#1f2937] space-y-1.5 mt-1"><li>• 2×3 static subplot grids for parameter sweeps</li><li>• 30 hidden backup slides scrambled in Q&amp;A</li><li>• One static deck acting as both stage aid &amp; handout</li></ul></div></div><p class="text-center text-[clamp(13px,1.35vw,17px)] text-[#4a5568]">Everything up to this slide still looked like classic Google Slides…</p></div>` },
+      { id: 22, section: 'The Reveal', title: "By the way — this wasn't Google Slides.", isReveal: true, notes: 'THE REVEAL! Everything they just watched is live HTML & JS — even the phone pointer in your hand is talking straight to this deck.',
+        render: () => `<div class="w-full h-full flex flex-col items-center justify-center px-[7%] py-[6%] text-center gap-5 bg-gradient-to-br from-[#ffffff] via-[#fdfbf6] to-[#eef5fc]"><div class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#dcebfa] text-[#1d5ca8] text-xs font-bold tracking-wider uppercase"><span class="w-2 h-2 rounded-full bg-[#1d5ca8]"></span> Live HTML Artifact</div><h2 class="slide-title text-[clamp(25px,3.6vw,46px)] max-w-3xl">By the way — this wasn’t Google Slides.</h2><p class="text-[clamp(13px,1.4vw,18px)] text-[#4a5568] max-w-2xl">Every slide you just watched is live HTML &amp; JavaScript. Which means the next four slides don’t have to stay frozen.</p><div class="grid grid-cols-4 gap-3 w-full max-w-4xl mt-2 text-left">${[[23,'01 · Living Plot','Sliders + on-demand drill-down instead of backup slides'],[24,'02 · Live Q&A Edit','Send a prompt on stage and watch plot & code update'],[25,'03 · Real Checker','Audit the actual word counts of THIS deck live'],[26,'04 · One Source','Flip this entire talk into a 1-page handout in 1 click']].map(([t,l,d])=>`<button onclick="goToSlide(${t-1})" class="warm-card p-3.5 hover:border-[#1d5ca8] hover:shadow-md transition text-left group"><div class="text-xs font-extrabold text-[#1d5ca8] group-hover:underline mb-1">${l} →</div><div class="text-[clamp(11px,1vw,13px)] text-[#4a5568] leading-snug">${d}</div></button>`).join('')}</div><button onclick="nextSlide()" class="mt-1 px-5 py-2.5 rounded-xl bg-[#1d5ca8] text-white font-bold text-sm hover:bg-[#174a8a] transition pulse-ring">Try the live demos →</button></div>` },
+      { id: 23, section: 'Live Demo 1 · Living Plot', title: 'One plot, one takeaway — until someone asks', isReveal: true, notes: 'Demo 1: Toggle Individual Subjects or Control right from your phone — no hunting through 30 backup slides. Drag Cue Advantage to answer "what if?" live.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[5%] py-[4.5%]"><div class="flex items-center justify-between gap-4"><h2 class="slide-title text-[clamp(17px,2.2vw,28px)]">One plot, one takeaway — until someone asks</h2><span class="px-2.5 py-1 rounded-full bg-[#dcebfa] text-[#1d5ca8] text-[11px] font-bold shrink-0">LIVE PLOT</span></div><div class="grid grid-cols-12 gap-5 flex-1 items-center mt-2"><div class="col-span-7 flex flex-col items-center"><div id="livePlotTakeaway" class="text-[clamp(12px,1.2vw,15px)] font-bold mb-1 text-center"></div><div id="livePlotContainer" class="w-full bg-white rounded-xl border border-[#e2ddd3] p-2"></div></div><div class="col-span-5 space-y-3"><div class="warm-card p-3.5 space-y-2"><div class="text-[11px] font-bold uppercase tracking-wider text-[#b34712]">On-demand drill-down (no backup slides)</div><label class="flex items-center gap-2 text-xs font-medium cursor-pointer"><input id="chkSubjects" type="checkbox" class="rounded accent-[#1d5ca8]" onchange="syncDemo1FromDOM()"/> Show individual subjects (n = 12)</label><label class="flex items-center gap-2 text-xs font-medium cursor-pointer"><input id="chkControl" type="checkbox" class="rounded accent-[#1d5ca8]" onchange="syncDemo1FromDOM()"/> Show control condition (no switch)</label><label class="flex items-center gap-2 text-xs font-medium cursor-pointer"><input id="chkGap" type="checkbox" class="rounded accent-[#1d5ca8]" onchange="syncDemo1FromDOM()"/> Annotate trial-5 cued advantage</label></div><div class="warm-card p-3.5 space-y-2.5"><div class="text-[11px] font-bold uppercase tracking-wider text-[#1d5ca8]">Live parameters (no 2×3 subplot grid)</div><div><div class="flex justify-between text-xs mb-0.5"><span class="font-medium">Cue advantage</span><span id="valCue" class="mono text-[#1d5ca8] font-bold">1.0×</span></div><input id="rngCue" type="range" min="0.4" max="2.2" step="0.1" value="1.0" class="w-full" oninput="syncDemo1FromDOM()"/></div><div><div class="flex justify-between text-xs mb-0.5"><span class="font-medium">Trial noise (SEM)</span><span id="valNoise" class="mono text-[#1d5ca8] font-bold">1.0×</span></div><input id="rngNoise" type="range" min="0.3" max="2.2" step="0.1" value="1.0" class="w-full" oninput="syncDemo1FromDOM()"/></div><div><div class="flex justify-between text-xs mb-0.5"><span class="font-medium">Mastery threshold</span><span id="valThresh" class="mono text-[#1d5ca8] font-bold">0.80</span></div><input id="rngThresh" type="range" min="0.60" max="0.90" step="0.05" value="0.80" class="w-full" oninput="syncDemo1FromDOM()"/></div></div></div></div></div>`,
+        onMount: () => applyDemo1StateToDOM() },
+      { id: 24, section: 'Live Demo 2 · Q&A Prompt', title: 'What if Livedeck ran during Q&A?', isReveal: true, notes: 'Demo 2: Tap a chip on your phone or type a request like "Make uncued teal" or "Zoom to 15 trials". Watch the plot and code diff update live.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[5%] py-[4.5%]"><div class="flex items-center justify-between gap-4"><h2 class="slide-title text-[clamp(17px,2.2vw,28px)]">What if Livedeck ran during Q&amp;A?</h2><span class="px-2.5 py-1 rounded-full bg-[#dcebfa] text-[#1d5ca8] text-[11px] font-bold shrink-0">LIVE PROMPT → CODE</span></div><div class="grid grid-cols-12 gap-5 flex-1 items-center mt-2"><div class="col-span-6 bg-white rounded-xl border border-[#e2ddd3] p-2"><div id="qaPlotContainer"></div></div><div class="col-span-6 flex flex-col gap-2.5"><form onsubmit="runQaPrompt(event)" class="flex gap-2"><input id="qaPromptInput" type="text" placeholder='Try: "Make uncued teal" or "Zoom to 15"' class="flex-1 px-3 py-2 rounded-lg border border-[#cbd2d9] bg-white text-xs focus:outline-none focus:border-[#1d5ca8]"/><button type="submit" class="px-3.5 py-2 rounded-lg bg-[#1b2838] text-white text-xs font-bold hover:bg-[#1d5ca8] transition">Apply</button></form><div class="flex flex-wrap gap-1.5">${['Highlight trials 1–10','Make uncued teal','Zoom to 15 trials','Show individual subjects','Add threshold 0.8','Reset'].map(c=>`<button type="button" onclick="applyQaChip('${c}')" class="px-2.5 py-1 rounded-full bg-[#fdfbf6] border border-[#d9d2c7] hover:border-[#1d5ca8] hover:text-[#1d5ca8] text-[11px] font-medium transition">${c}</button>`).join('')}</div><div class="rounded-xl bg-[#14213d] text-[#e2e8f0] p-3 mono text-[11px] leading-relaxed"><div class="text-[10px] uppercase tracking-wider text-[#93c5fd] mb-1">Simulated code diff · plot_learning.py</div><div id="qaCodeDiff" class="space-y-0.5"></div></div><div id="qaStatus" class="text-[11px] text-[#4a5568]">Tip: try color names (teal, purple, crimson, blue), "zoom to 15", "smooth", "gap", or "reset".</div></div></div></div>`,
+        onMount: () => renderQaPlot() },
+      { id: 25, section: 'Live Demo 3 · Live Audit', title: "Remember the checker? Let's audit THIS deck live.", isReveal: true, notes: 'Demo 3: Drag the word-limit slider on your phone or screen to tighten the rule across all 26 slides in real time.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[5%] py-[4.5%]"><div class="flex items-center justify-between gap-4"><h2 class="slide-title text-[clamp(17px,2.15vw,27px)]">Remember the checker? Let’s audit THIS deck live.</h2><label class="flex items-center gap-2 text-xs font-medium shrink-0">Word limit:<input id="rngWordLimit" type="range" min="15" max="75" step="5" value="${auditLimit}" class="w-24" oninput="setAuditLimit(parseInt(this.value,10))"/><span id="valWordLimit" class="mono font-bold text-[#1d5ca8] w-7">${auditLimit}</span></label></div><div id="auditSummary" class="flex items-center gap-4 text-xs mt-1"></div><div id="auditGrid" class="grid grid-cols-9 gap-2 my-2"></div><div id="auditInspector" class="warm-card px-4 py-2.5 flex items-center justify-between gap-4 text-xs"><span class="text-[#4a5568]">Click any slide tile above to inspect its exact word count or jump straight there.</span></div></div>`,
+        onMount: () => renderLiveAudit() },
+      { id: 26, section: 'Closing & Discussion', title: 'Contributions: three things to try — plus one question', isReveal: true, notes: 'Winston’s final rule: end on contributions and leave this up during discussion. Tap "Reveal 1-Page Handout" on your phone to show one source → multiple artifacts live.',
+        render: () => `<div class="w-full h-full flex flex-col justify-between px-[6%] py-[5%]"><div class="flex items-center justify-between gap-3"><h2 class="slide-title text-[clamp(18px,2.4vw,31px)]">Contributions: three things to try this week</h2><button onclick="toggleHandout(true)" class="px-3.5 py-1.5 rounded-lg bg-[#1d5ca8] text-white text-xs font-bold hover:bg-[#174a8a] transition shrink-0 shadow-sm">📄 Generate 1-Page Handout</button></div><div class="grid grid-cols-3 gap-4 my-3">${[['1 · Check your rules','Write 3 rules you believe in. Ask AI to check every slide.'],['2 · Link one figure','Own your data-to-slide loop (optional — start with one plot).'],['3 · Test audience','Rehearse aloud, paste transcript only, ask what it heard.']].map(([h,p])=>`<div class="warm-card p-4"><div class="text-[clamp(13px,1.35vw,17px)] font-extrabold mb-1">${h}</div><div class="text-[clamp(11px,1.05vw,14px)] text-[#4a5568] leading-snug">${p}</div></div>`).join('')}</div><div class="rounded-xl bg-[#fdfbf6] border border-[#d9d2c7] p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"><div class="space-y-1 flex-1"><div class="text-[11px] font-bold uppercase tracking-wider text-[#b34712]">Open Discussion · Exchange Ideas</div><div id="discussionPromptText" class="text-[clamp(13px,1.35vw,17px)] font-bold">${DISCUSSION_PROMPTS[discussionIdx]}</div></div><div class="flex items-center gap-1.5 shrink-0">${['Drop a habit','Best trick / fail','Talks in 2 yrs'].map((l,i)=>`<button onclick="setDiscussionPrompt(${i})" class="disc-btn px-2.5 py-1 rounded-md text-xs font-semibold ${discussionIdx===i?'bg-[#1b2838] text-white':'bg-[#ece8e1] text-[#14213d]'}">${l}</button>`).join('')}</div></div><div class="flex items-center justify-between text-[clamp(11px,1.1vw,14px)] text-[#4a5568]"><span><strong class="text-[#14213d]">Write the note once.</strong> AI makes sure you follow it.</span><span class="text-[#1d5ca8] font-medium">Thank you — let’s talk!</span></div></div>` }
+    ];
+
+    /* ========================================================================
+       DECK ENGINE & INTERACTIVE HANDLERS
+       ======================================================================== */
+    function computeAllWordCounts() {
+      const tmp = document.createElement('div');
+      cachedWordCounts = SLIDES.map(s => {
+        tmp.innerHTML = s.render();
+        tmp.querySelectorAll('svg, pre, input, button').forEach(el => el.remove());
+        const text = (tmp.textContent || '').replace(/\s+/g, ' ').trim();
+        return text ? text.split(' ').filter(w => /[a-zA-Z0-9]/.test(w)).length : 0;
+      });
+    }
+
+    function renderSlide() {
+      const slide = SLIDES[currentSlide];
+      const stage = document.getElementById('slideStage');
+      if (slide.isReveal && !revealUnlocked) {
+        revealUnlocked = true;
+        document.getElementById('deckModeBadge').className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#dcebfa] text-[#1d5ca8] transition-all duration-300';
+        document.getElementById('deckModeDot').className = 'w-2 h-2 rounded-full bg-[#1d5ca8]';
+        document.getElementById('deckModeLabel').textContent = 'Live Interactive HTML Deck';
+        document.getElementById('btnHandoutTop').classList.remove('hidden');
+      }
+      stage.classList.toggle('live-unlocked', !!slide.isReveal);
+      document.getElementById('slideContent').innerHTML = `<div class="w-full h-full fade-slide">${slide.render()}</div>`;
+      document.getElementById('slideNum').textContent = slide.id;
+      if (typeof slide.onMount === 'function') slide.onMount();
+
+      document.getElementById('slideCounter').textContent = `${currentSlide + 1} / ${SLIDES.length}`;
+      document.getElementById('sectionCrumb').textContent = `${slide.section} · ${slide.title}`;
+      document.getElementById('btnPrev').disabled = currentSlide === 0;
+      document.getElementById('btnNext').disabled = currentSlide === SLIDES.length - 1;
+      document.getElementById('notesText').textContent = slide.notes;
+      document.getElementById('notesMeta').textContent = `Slide ${slide.id} · ${slide.section}`;
+      document.getElementById('progressDots').innerHTML = SLIDES.map((s, idx) => {
+        const bg = idx === currentSlide ? 'bg-[#1d5ca8] scale-y-150' : (idx < currentSlide ? 'bg-[#94a3b8]' : (s.isReveal && revealUnlocked ? 'bg-[#1d5ca8]/35' : 'bg-[#d9d2c7]'));
+        return `<button onclick="goToSlide(${idx})" title="Slide ${s.id}: ${s.title}" class="h-1.5 flex-1 rounded-full transition-all ${bg} hover:bg-[#1d5ca8]"></button>`;
+      }).join('');
+      remote.sync();
+    }
+
+    function nextSlide() { if (currentSlide < SLIDES.length - 1) { currentSlide++; renderSlide(); } }
+    function prevSlide() { if (currentSlide > 0) { currentSlide--; renderSlide(); } }
+    function goToSlide(idx) { currentSlide = Math.max(0, Math.min(SLIDES.length - 1, idx)); toggleGrid(false); renderSlide(); }
+    function toggleNotes() { notesOpen = !notesOpen; document.getElementById('notesPanel').classList.toggle('hidden', !notesOpen); }
+    function toggleGrid(force) {
+      const m = document.getElementById('gridModal'), open = typeof force === 'boolean' ? force : m.classList.contains('hidden');
+      m.classList.toggle('hidden', !open);
+      if (open) document.getElementById('gridCards').innerHTML = SLIDES.map((s, i) => `<button onclick="goToSlide(${i})" class="text-left p-3 rounded-xl border transition ${i===currentSlide?'border-[#1d5ca8] bg-[#dcebfa]/20':'border-[#d9d2c7] hover:border-[#1d5ca8]'}"><div class="flex items-center justify-between text-[11px] mb-1"><span class="mono font-bold text-[#1d5ca8]">#${s.id}</span><span class="text-[10px] px-1.5 py-0.5 rounded ${s.isReveal?'bg-[#dcebfa] text-[#1d5ca8] font-bold':'bg-[#ece8e1] text-[#5b6472]'}">${s.isReveal?'LIVE':s.section.split('·')[0]}</span></div><div class="text-xs font-semibold line-clamp-2">${s.title}</div></button>`).join('');
+    }
+    function toggleHandout(open) {
+      handoutOpen = open;
+      document.getElementById('handoutView').classList.toggle('hidden', !open);
+      if (open) document.getElementById('handoutStats').textContent = `${SLIDES.length} slides distilled · ${cachedWordCounts.reduce((a,b)=>a+b,0)} slide words`;
+      remote.sync();
+    }
+    function toggleFullscreen() { const el = document.getElementById('slideStage'); if (!document.fullscreenElement) el.requestFullscreen?.().catch(()=>{}); else document.exitFullscreen?.(); }
+
+    function syncDemo1FromDOM() {
+      demo1State.cueBoost = parseFloat(document.getElementById('rngCue')?.value || '1.0');
+      demo1State.noiseScale = parseFloat(document.getElementById('rngNoise')?.value || '1.0');
+      demo1State.thresh = parseFloat(document.getElementById('rngThresh')?.value || '0.80');
+      demo1State.showSubjects = !!document.getElementById('chkSubjects')?.checked;
+      demo1State.showControl = !!document.getElementById('chkControl')?.checked;
+      demo1State.showGap = !!document.getElementById('chkGap')?.checked;
+      renderDemo1Plot(); remote.sync();
+    }
+    function applyDemo1StateToDOM() {
+      const sv = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
+      const sc = (id, v) => { const e = document.getElementById(id); if (e) e.checked = v; };
+      sv('rngCue', demo1State.cueBoost); sv('rngNoise', demo1State.noiseScale); sv('rngThresh', demo1State.thresh);
+      sc('chkSubjects', demo1State.showSubjects); sc('chkControl', demo1State.showControl); sc('chkGap', demo1State.showGap);
+      renderDemo1Plot();
+    }
+    function renderDemo1Plot() {
+      const { cueBoost, noiseScale, thresh, showSubjects, showControl, showGap } = demo1State;
+      const st = (id, t) => { const e = document.getElementById(id); if (e) e.textContent = t; };
+      st('valCue', `${cueBoost.toFixed(1)}×`); st('valNoise', `${noiseScale.toFixed(1)}×`); st('valThresh', thresh.toFixed(2));
+      const { svg, cM, uM } = buildLearningCurveSVG({ width: 440, height: 295, cueBoost, noiseScale, thresholdY: thresh, showSubjects, showControl, showGapAt: showGap ? 5 : null });
+      const c = document.getElementById('livePlotContainer'); if (c) c.innerHTML = svg;
+      const ch = cM.findIndex(v => v >= thresh) + 1, uh = uM.findIndex(v => v >= thresh) + 1;
+      const te = document.getElementById('livePlotTakeaway');
+      if (te) te.innerHTML = `Cued reaches <span class="text-[#1d5ca8]">${thresh.toFixed(2)}</span> in <span class="underline">${ch>0?ch+' trials':'>30 trials'}</span> vs. <span class="text-[#b34712]">${uh>0?uh+' trials':'>30 trials'}</span> for uncued.`;
+    }
+    function renderQaPlot() {
+      const { svg } = buildLearningCurveSVG({ width: 410, height: 280, ...qaState });
+      const c = document.getElementById('qaPlotContainer'); if (c) c.innerHTML = svg;
+      const d = document.getElementById('qaCodeDiff');
+      if (d) d.innerHTML = qaState.diffLines.map(l => `<div class="${l.startsWith('+')?'text-[#86efac]':(l.startsWith('-')?'text-[#fca5a5]':'text-[#cbd5e1]')}">${l}</div>`).join('');
+    }
+    function applyQaChip(t) { const i = document.getElementById('qaPromptInput'); if (i) i.value = t; parseAndApplyQaPrompt(t); }
+    function runQaPrompt(e) { e.preventDefault(); const i = document.getElementById('qaPromptInput'); if (i?.value.trim()) parseAndApplyQaPrompt(i.value.trim()); }
+    function parseAndApplyQaPrompt(raw) {
+      const q = raw.toLowerCase(), status = document.getElementById('qaStatus');
+      if (q.includes('reset') || q.includes('default')) {
+        Object.assign(qaState, { cuedColor:'#1e242b', uncuedColor:'#e07016', showChance:true, thresholdY:null, showSubjects:false, highlightRange:null, showGapAt:null, maxTrial:30, smooth:false, diffLines:['  # Reset to default','  ax.plot(trials, uncued, color="#e07016")','  ax.set_xlim(1, 30)'] });
+        renderQaPlot(); if (status) status.textContent = '✓ Reset plot to default.'; return;
+      }
+      const diffs = [], colors = { teal:'#0d9488', blue:'#1d5ca8', purple:'#7c3aed', red:'#dc2626', crimson:'#b91c1c', green:'#15803d', orange:'#e07016', gray:'#6b7280', black:'#1e242b' };
+      for (const [n, hex] of Object.entries(colors)) if (q.includes(n)) { if (q.includes('cued') && !q.includes('uncued')) { qaState.cuedColor = hex; diffs.push(`+ cued_color = "${hex}"`); } else { qaState.uncuedColor = hex; diffs.push(`+ uncued_color = "${hex}"`); } break; }
+      if (q.includes('highlight') || q.includes('1-10') || q.includes('1–10')) { qaState.highlightRange = [1, 10]; diffs.push('+ ax.axvspan(1, 10, color="#f9d566", alpha=0.28)'); }
+      if (q.includes('zoom') || q.includes('15')) { qaState.maxTrial = q.includes('30') ? 30 : 15; diffs.push(`+ ax.set_xlim(1, ${qaState.maxTrial})`); }
+      if (q.includes('subject') || q.includes('raw')) { qaState.showSubjects = !q.includes('hide'); diffs.push(`+ plot_individual_subjects(alpha=${qaState.showSubjects?'0.22':'0.0'})`); }
+      if (q.includes('threshold') || q.includes('0.8') || q.includes('0.85')) { const m = q.match(/0\.\d+/); qaState.thresholdY = m ? Math.min(0.95, Math.max(0.55, parseFloat(m[0]))) : 0.80; diffs.push(`+ ax.axhline(${qaState.thresholdY.toFixed(2)}, ls="--")`); }
+      if (q.includes('gap') || q.includes('trial 5')) { qaState.showGapAt = 5; diffs.push('+ annotate_gap(trial=5)'); }
+      if (q.includes('smooth')) { qaState.smooth = true; diffs.push('+ curves = gaussian_filter1d(curves, sigma=1.0)'); }
+      if (!diffs.length) { qaState.showGapAt = 5; diffs.push(`# Interpreted "${raw}"`, '+ annotate_gap(trial=5)'); }
+      qaState.diffLines = diffs; renderQaPlot();
+      if (status) status.textContent = `✓ Applied: "${raw}" — slide redrawn live.`;
+    }
+    function setAuditLimit(val) { auditLimit = Math.max(15, Math.min(75, val)); const r = document.getElementById('rngWordLimit'); if (r) r.value = auditLimit; renderLiveAudit(); remote.sync(); }
+    function renderLiveAudit() {
+      const v = document.getElementById('valWordLimit'); if (v) v.textContent = auditLimit;
+      const g = document.getElementById('auditGrid'); if (!g) return;
+      let pass = 0, flag = 0;
+      g.innerHTML = SLIDES.map((s, i) => { const wc = cachedWordCounts[i] || 0, fl = wc > auditLimit; if (fl) flag++; else pass++; return `<button onclick="inspectAuditSlide(${i})" class="rounded-lg p-1.5 flex flex-col items-center justify-between border transition hover:scale-105 ${fl?'bg-[#f6b26b] border-[#b34712] text-[#14213d]':'bg-[#3d4d66] border-[#2d3b52] text-white'}"><div class="w-full flex items-center justify-between text-[10px] mono font-bold"><span>#${s.id}</span><span>${fl?'⚠':'✓'}</span></div><div class="text-[11px] font-extrabold mono mt-1">${wc}w</div></button>`; }).join('');
+      document.getElementById('auditSummary').innerHTML = `<span class="px-2.5 py-0.5 rounded-full bg-[#edf7f2] text-[#2d7a5e] font-bold">✓ ${pass} passed</span><span class="px-2.5 py-0.5 rounded-full ${flag?'bg-[#f7e3d7] text-[#b34712]':'bg-[#ece8e1] text-[#4a5568]'} font-bold">⚠ ${flag} over ${auditLimit} words</span><span class="text-[#5b6472]">Drag the slider left to tighten your rule in real time.</span>`;
+    }
+    function inspectAuditSlide(i) {
+      const s = SLIDES[i], wc = cachedWordCounts[i], over = wc > auditLimit;
+      document.getElementById('auditInspector').innerHTML = `<div><span class="font-extrabold">Slide ${s.id}: ${s.title}</span><span class="ml-2 mono font-bold ${over?'text-[#b34712]':'text-[#2d7a5e]'}">${wc} words (${over?'+'+(wc-auditLimit)+' over':'pass'})</span></div><button onclick="goToSlide(${i})" class="px-3 py-1 rounded-md bg-[#1d5ca8] text-white font-bold text-xs">Jump to Slide ${s.id} →</button>`;
+    }
+    function setDiscussionPrompt(i) {
+      discussionIdx = i;
+      const el = document.getElementById('discussionPromptText'); if (el) el.textContent = DISCUSSION_PROMPTS[i];
+      document.querySelectorAll('.disc-btn').forEach((b, idx) => { b.className = idx===i ? 'disc-btn px-2.5 py-1 rounded-md text-xs font-semibold bg-[#1b2838] text-white' : 'disc-btn px-2.5 py-1 rounded-md text-xs font-semibold bg-[#ece8e1] text-[#14213d]'; });
+      remote.sync();
+    }
+
+    /* ========================================================================
+       CONNECT TO /remote.js (Declarative phone controls for Slides 23–26!)
+       ======================================================================== */
+    function buildSlideControls(slideId) {
+      if (slideId === 23) return {
+        title: 'Live Plot Controls (Slide 23)',
+        items: [
+          { type: 'toggle', label: 'Subjects', active: demo1State.showSubjects, action: 'demo1', payload: { showSubjects: !demo1State.showSubjects } },
+          { type: 'toggle', label: 'Control', active: demo1State.showControl, color: '#2d7a5e', action: 'demo1', payload: { showControl: !demo1State.showControl } },
+          { type: 'toggle', label: 'Trial-5 Gap', active: demo1State.showGap, color: '#b34712', action: 'demo1', payload: { showGap: !demo1State.showGap } },
+          { type: 'slider', label: 'Cue', value: demo1State.cueBoost, min: 0.4, max: 2.2, step: 0.2, suffix: '×', action: 'demo1_cue' }
+        ]
+      };
+      if (slideId === 24) return {
+        title: 'Live Q&A Prompt (Slide 24)',
+        items: ['Highlight trials 1–10','Make uncued teal','Zoom to 15 trials','Add threshold 0.8','Reset'].map(c => ({ type: 'button', label: c, action: 'qa_prompt', payload: c }))
+      };
+      if (slideId === 25) return {
+        title: 'Live Rule Audit (Slide 25)',
+        items: [{ type: 'slider', label: 'Limit', value: auditLimit, min: 15, max: 75, step: 5, suffix: 'w', action: 'audit_limit' }]
+      };
+      if (slideId === 26) return {
+        title: 'Closing Controls (Slide 26)',
+        items: [
+          { type: 'button', label: handoutOpen ? '← Back to Slides' : '📄 Reveal 1-Page Handout', primary: true, full: true, action: 'handout', payload: !handoutOpen },
+          ...['Drop habit','Best trick','In 2 yrs'].map((l, i) => ({ type: 'toggle', label: l, active: discussionIdx === i, color: '#b34712', action: 'discussion', payload: i }))
+        ]
+      };
+      return null;
+    }
+
+    const remote = SlideRemote.init({
+      stageSelector: '#slideStage',
+      getState: () => {
+        const s = SLIDES[currentSlide];
+        return { index: currentSlide, id: s.id, total: SLIDES.length, section: s.section, title: s.title, notes: s.notes, controls: buildSlideControls(s.id) };
+      },
+      onNav: (action, idx) => { if (action === 'next') nextSlide(); else if (action === 'prev') prevSlide(); else if (action === 'goto' && typeof idx === 'number') goToSlide(idx); },
+      onAction: (action, payload) => {
+        if (action === 'demo1') { Object.assign(demo1State, payload); if (currentSlide === 22) applyDemo1StateToDOM(); remote.sync(); }
+        else if (action === 'demo1_cue') { demo1State.cueBoost = Number(payload); if (currentSlide === 22) applyDemo1StateToDOM(); remote.sync(); }
+        else if (action === 'qa_prompt') { if (currentSlide !== 23) goToSlide(23); applyQaChip(String(payload)); }
+        else if (action === 'audit_limit') setAuditLimit(Number(payload));
+        else if (action === 'handout') toggleHandout(Boolean(payload));
+        else if (action === 'discussion') setDiscussionPrompt(Number(payload));
+      },
+      onStatusChange: ({ status, remotes }) => {
+        const dot = document.getElementById('remoteDot');
+        if (!dot) return;
+        dot.className = (status === 'connected' && remotes > 0) ? 'w-2 h-2 rounded-full bg-[#22c55e]' : (status === 'connected' ? 'w-2 h-2 rounded-full bg-[#1d5ca8]' : 'w-1.5 h-1.5 rounded-full bg-[#94a3b8]');
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); nextSlide(); }
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); prevSlide(); }
+      else if (e.key === 'n' || e.key === 'N') toggleNotes();
+      else if (e.key === 'g' || e.key === 'G') toggleGrid();
+      else if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+      else if (e.key === 'Escape') { toggleGrid(false); toggleHandout(false); }
+    });
+
+    computeAllWordCounts();
+    renderSlide();
+  </script>
+</body>
+</html>

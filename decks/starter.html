@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Starter Deck — slides-remote</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f4f2ed; color: #14213d; padding: 20px;
+    }
+    .stage {
+      width: 100%; max-width: 960px; aspect-ratio: 16 / 9; background: #fff; border-radius: 12px;
+      box-shadow: 0 12px 36px rgba(15,23,42,.12); padding: 7%; display: flex; flex-direction: column;
+      justify-content: center; position: relative; overflow: hidden;
+    }
+    h1 { font-size: clamp(24px, 3.6vw, 48px); margin: 0 0 14px; letter-spacing: -0.025em; }
+    p { font-size: clamp(14px, 1.6vw, 22px); color: #4a5568; margin: 0; line-height: 1.5; max-width: 36em; }
+    .num { position: absolute; right: 24px; bottom: 18px; color: #64748b; font-size: 14px; }
+    .bar { width: 100%; max-width: 960px; display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 13px; color: #4a5568; }
+    button { cursor: pointer; padding: 6px 12px; border-radius: 8px; border: 1px solid #d9d2c7; background: #fff; color: #14213d; font-weight: 600; }
+    .pill { display: inline-block; padding: 4px 12px; border-radius: 999px; background: #dcebfa; color: #1d5ca8; font-weight: 700; font-size: 13px; margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+  <div id="slideStage" class="stage"></div>
+  <div class="bar">
+    <div>
+      <button onclick="prev()">← Prev</button>
+      <button onclick="next()">Next →</button>
+      <span id="counter" style="margin-left:8px"></span>
+    </div>
+    <div>
+      <button onclick="remote.openModal()">📱 Pair Phone (R)</button>
+    </div>
+  </div>
+
+  <script src="/remote.js"></script>
+  <script>
+    let rate = 1.0;
+    const SLIDES = [
+      {
+        title: 'Minimal Starter Deck',
+        body: 'Press R to scan the QR code with your phone and control slides + laser pointer from anywhere.',
+        notes: 'Welcome! This 4-slide template shows the minimal integration with /remote.js.'
+      },
+      {
+        title: 'Drop /remote.js into any HTML deck',
+        body: 'Just include <code>&lt;script src="/remote.js"&gt;&lt;/script&gt;</code> and call <code>SlideRemote.init({ stageSelector, getState, onNav })</code>.',
+        notes: 'Use your phone touchpad right now to test the laser dot and spotlight ring.'
+      },
+      {
+        title: 'Interactive Slide Controlled from Phone',
+        interactive: true,
+        notes: 'Slide the custom control on your phone to change the live value on screen!'
+      },
+      {
+        title: 'Build your own in decks/',
+        body: 'Copy this file into decks/my-talk.html and refresh — server.mjs picks it up automatically.',
+        notes: 'Final slide. Keyboard arrows always stay active as a fallback.'
+      }
+    ];
+
+    let idx = 0;
+
+    function render() {
+      const s = SLIDES[idx];
+      const stage = document.getElementById('slideStage');
+      stage.innerHTML = s.interactive
+        ? `<div class="pill">LIVE PHONE CONTROL</div>
+           <h1>${s.title}</h1>
+           <p>Current multiplier controlled from your phone: <strong style="color:#1d5ca8;font-size:1.4em">${rate.toFixed(1)}×</strong></p>
+           <div class="num">${idx + 1}</div>`
+        : `<h1>${s.title}</h1><p>${s.body}</p><div class="num">${idx + 1}</div>`;
+      document.getElementById('counter').textContent = `${idx + 1} / ${SLIDES.length}`;
+      remote.sync();
+    }
+
+    function next() { if (idx < SLIDES.length - 1) { idx++; render(); } }
+    function prev() { if (idx > 0) { idx--; render(); } }
+
+    const remote = SlideRemote.init({
+      stageSelector: '#slideStage',
+      getState: () => {
+        const s = SLIDES[idx];
+        return {
+          index: idx,
+          id: idx + 1,
+          total: SLIDES.length,
+          title: s.title,
+          notes: s.notes,
+          controls: s.interactive ? {
+            title: 'Slide 3 Live Parameter',
+            items: [
+              { type: 'slider', label: 'Rate', value: rate, min: 0.5, max: 3.0, step: 0.1, suffix: '×', action: 'set_rate' },
+              { type: 'button', label: 'Reset 1.0×', action: 'set_rate', payload: 1.0 }
+            ]
+          } : null
+        };
+      },
+      onNav: (action) => { if (action === 'next') next(); else if (action === 'prev') prev(); },
+      onAction: (action, payload) => {
+        if (action === 'set_rate') { rate = Number(payload); render(); }
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') next();
+      else if (e.key === 'ArrowLeft') prev();
+    });
+
+    render();
+  </script>
+</body>
+</html>

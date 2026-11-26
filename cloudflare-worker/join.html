@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>Join the audience · LiveDeck</title>
+<style>html,body{margin:0;min-height:100%;background:#f6f5ef}</style>
+<style id="participant-css">
+.participant {
+  --ink:#202d2a; --muted:#52625b; --line:#c8cec2; --accent:#166862;
+  box-sizing:border-box; width:min(100%, 42rem); min-height:100vh; min-height:100svh; margin:auto;
+  padding:clamp(18px,5vw,40px); color:var(--ink); background:#f6f5ef;
+  font:16px/1.45 "DM Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+.participant *, .participant *::before, .participant *::after {box-sizing:border-box}
+.participant [hidden] {display:none!important}
+.participant .p-header {display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--line); padding-bottom:16px}
+.participant .p-name {font-weight:750; letter-spacing:-.035em}
+.participant .p-status {display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:.8rem; text-align:right}
+.participant .p-status::before {content:""; width:8px; height:8px; flex:none; border-radius:50%; background:#a87038}
+.participant .p-status[data-live="yes"]::before {background:var(--accent)}
+.participant .p-title {margin:clamp(28px,8vw,54px) 0 10px; font-size:clamp(2rem,7vw,3.3rem); line-height:1.05; letter-spacing:-.045em; overflow-wrap:anywhere}
+.participant .p-help, .participant .p-feedback, .participant .p-keyhelp {color:var(--muted)}
+.participant .p-help {margin:0 0 24px}
+.participant .p-votes {display:grid; gap:10px}
+.participant button, .participant canvas {font:inherit; -webkit-tap-highlight-color:transparent}
+.participant button {cursor:pointer; color:var(--ink)}
+.participant button:disabled {cursor:default; opacity:.6}
+.participant .p-option {position:relative; isolation:isolate; overflow:hidden; display:flex; align-items:center; justify-content:space-between;
+  gap:12px; min-height:58px; width:100%; padding:12px 16px; border:1px solid var(--line); border-radius:10px; background:#fff;
+  text-align:left; overflow-wrap:anywhere}
+.participant .p-option::before {content:""; position:absolute; z-index:-1; inset:0 auto 0 0; width:var(--share,0%); background:#dfebe4; transition:width .2s}
+.participant .p-option[aria-pressed="true"] {border:2px solid var(--accent); padding:11px 15px; font-weight:700}
+.participant .p-count {flex:none; font-size:.88em; font-variant-numeric:tabular-nums; color:#45645c}
+.participant button:focus-visible, .participant canvas:focus-visible {outline:3px solid #445bbb; outline-offset:3px}
+.participant .p-canvas {display:block; width:100%; aspect-ratio:16 / 9; border-radius:8px; background-color:white;
+  outline:1px solid var(--line); cursor:crosshair; touch-action:none}
+.participant .p-palette {display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:12px}
+.participant .p-swatch {display:grid; place-items:center; width:44px; height:44px; border-radius:50%; border:2px solid transparent; background:transparent}
+.participant .p-swatch::after {content:""; display:block; width:26px; height:26px; background:var(--swatch); border-radius:50%}
+.participant .p-swatch[aria-pressed="true"] {border-color:var(--swatch)}
+.participant .p-feedback {min-height:1.5em; margin:18px 0 0; font-size:.94rem}
+.participant .p-keyhelp {display:none; font-size:.8rem}
+.participant .p-draw:focus-within .p-keyhelp {display:block}
+@media (prefers-reduced-motion:reduce) { .participant .p-option::before {transition:none} }
+</style>
+</head>
+<body><main id="join"></main>
+<script id="participant-ui">
+(() => {
+  const palette = new Map([['#166862','Teal'],['#b84d2f','Clay'],['#445bbb','Blue'],['#333333','Charcoal']]);
+  function randomId() {
+    return Array.from(crypto.getRandomValues(new Uint8Array(8)), n => n.toString(16).padStart(2, '0')).join('');
+  }
+  function deviceId() {
+    try {
+      const key = 'livedeck.audience.client';
+      const id = sessionStorage.getItem(key) || randomId();
+      sessionStorage.setItem(key, id);
+      return id;
+    } catch { return randomId(); }
+  }
+  window.mountAudience = function(root, {send, client = deviceId()}) {
+    root.classList.add('participant');
+    root.innerHTML = `
+      <header class="p-header"><span class="p-name">LiveDeck Audience</span><span class="p-status" role="status"></span></header>
+      <h1 class="p-title"></h1><p class="p-help"></p>
+      <div class="p-votes" role="group" aria-label="Vote"></div>
+      <div class="p-draw" hidden>
+        <canvas class="p-canvas" width="960" height="540" tabindex="0" aria-label="Group drawing canvas. Use arrow keys to position the pen. Space starts or finishes a line."></canvas>
+        <div class="p-palette" role="group" aria-label="Pen color"></div>
+        <p class="p-keyhelp">Use arrows to move the pen. Space starts or finishes a line. Escape cancels.</p>
+      </div>
+      <p class="p-feedback" role="status" aria-live="polite"></p>`;
+    const el = name => root.querySelector('.p-' + name);
+    const canvas = el('canvas'), ctx = canvas.getContext('2d');
+    const selections = new Map(), pending = new Map();
+    // A participant can reload in the middle of a poll and still see their choice.
+    const room = new URLSearchParams(location.hash.slice(1)).get('r');
+    const choiceKey = () => 'livedeck.vote.' + room + '.' + signature;
+    function selectedChoice() {
+      if (!selections.has(signature) && room) {
+        try {
+          const saved = sessionStorage.getItem(choiceKey());
+          if (saved !== null) selections.set(signature, Number(saved));
+        } catch { /* Storage may be unavailable in embedded browsers. */ }
+      }
+      return selections.get(signature);
+    }
+    let current = {key:null, activity:null}, signature = '', online = false, color = '#166862';
+    let pen = null, cursor = [.5, .5], showCursor = false;
+    const clamp = n => Math.max(0, Math.min(1, n));
+    const rounded = n => Math.round(clamp(n) * 1000) / 1000;
+    function stroke(line) {
+      const points = line?.points;
+      if (!palette.has(line.color) || !Array.isArray(points) || !points.length) return;
+      const [startX,startY] = points[0];
+      const x = startX * canvas.width, y = startY * canvas.height;
+      ctx.fillStyle = line.color;
+      ctx.beginPath(); ctx.arc(x,y,2.5,0,2*Math.PI); ctx.fill();
+      ctx.strokeStyle = line.color; ctx.lineWidth = 5;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(x,y);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i][0] * canvas.width, points[i][1] * canvas.height);
+      }
+      ctx.stroke();
+    }
+    function paint() {
+      if (current.activity?.kind !== 'draw') return;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      for (const line of current.strokes || []) stroke(line);
+      if (pen) stroke(pen);
+      if (showCursor && online && !current.full) {
+        ctx.strokeStyle = '#14201f'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(cursor[0]*canvas.width,cursor[1]*canvas.height,10,0,2*Math.PI); ctx.stroke();
+      }
+    }
+    function updateControls() {
+      const counts = current.counts || [];
+      const total = counts.reduce((sum, n) => sum + n, 0);
+      Array.from(el('votes').children).forEach((button, i) => {
+        const n = counts[i] || 0;
+        button.disabled = !online;
+        button.setAttribute('aria-pressed', String(selectedChoice() === i));
+        button.style.setProperty('--share', (total ? 100 * n / total : 0) + '%');
+        button.lastElementChild.textContent = n + (n === 1 ? ' vote' : ' votes');
+      });
+      for (const swatch of el('palette').children) {
+        swatch.disabled = !online || !!current.full;
+        swatch.setAttribute('aria-pressed', String(swatch.dataset.color === color));
+      }
+      canvas.setAttribute('aria-disabled', String(!online || !!current.full));
+    }
+    function receipt(msg) {
+      const input = pending.get(msg.receipt);
+      if (!input || input.key !== msg.key) return;
+      clearTimeout(input.timer); pending.delete(msg.receipt);
+      if (msg.key !== current.key) return;
+      if (!msg.accepted) { el('feedback').textContent = 'The slide could not accept that response.'; return; }
+      if (input.type === 'vote') {
+        selections.set(signature, input.choice);
+        if (room) {
+          try { sessionStorage.setItem(choiceKey(), String(input.choice)); } catch {}
+        }
+      }
+      el('feedback').textContent = input.type === 'vote' ? 'Vote recorded. You can change your choice.' : 'Stroke added to the drawing.';
+      updateControls();
+    }
+    function submit(data) {
+      if (!online || (data.type === 'stroke' && current.full)) return;
+      const id = randomId();
+      const input = {...data, key:current.key, client, receipt:id};
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        if (current.key === input.key) el('feedback').textContent = 'No confirmation arrived. Check the slide before trying again.';
+      }, 12000);
+      pending.set(id, {...input, timer});
+      el('feedback').textContent = 'Sending…';
+      if (send(input) === false) {
+        clearTimeout(timer); pending.delete(id);
+        el('feedback').textContent = 'Connection interrupted. Try again when connected.';
+      }
+    }
+    function render(state) {
+      current = state || {key:null, activity:null};
+      const activity = current.activity;
+      const nextSignature = JSON.stringify([current.key,activity?.kind,activity?.prompt,activity?.options]);
+      if (signature !== nextSignature) {
+        signature = nextSignature; pen = null; showCursor = false;
+        el('title').textContent = activity?.prompt || 'Waiting for an activity';
+        el('help').textContent = activity?.kind === 'vote' ? 'Tap a choice to cast your vote.'
+          : activity?.kind === 'draw' ? 'Choose a color and draw with your finger.' : 'Keep this page open. The next audience activity will appear here.';
+        el('feedback').textContent = '';
+        el('votes').replaceChildren();
+        el('votes').hidden = activity?.kind !== 'vote';
+        el('draw').hidden = activity?.kind !== 'draw';
+        if (activity?.kind === 'vote') {
+          (activity.options || []).forEach((option, i) => {
+            const button = document.createElement('button');
+            button.type = 'button'; button.className = 'p-option';
+            const label = document.createElement('span'); label.textContent = option;
+            const count = document.createElement('span'); count.className = 'p-count';
+            button.append(label, count); button.onclick = () => submit({type:'vote',choice:i});
+            el('votes').append(button);
+          });
+        }
+      }
+      if (activity?.kind === 'draw' && current.full) {
+        pen = null;
+        el('feedback').textContent = 'This canvas is full.';
+      }
+      updateControls(); paint();
+    }
+    function setStatus(label, connected) {
+      online = connected;
+      el('status').textContent = label;
+      el('status').dataset.live = connected ? 'yes' : 'no';
+      if (!online) { pen = null; paint(); }
+      updateControls();
+    }
+    for (const [hex, name] of palette) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'p-swatch'; button.dataset.color = hex;
+      button.style.setProperty('--swatch',hex); button.setAttribute('aria-label',name);
+      button.onclick = () => { color = hex; updateControls(); };
+      el('palette').append(button);
+    }
+    function position(ev) {
+      const rect = canvas.getBoundingClientRect();
+      return [rounded((ev.clientX-rect.left)/rect.width), rounded((ev.clientY-rect.top)/rect.height)];
+    }
+    function addPoint(point) {
+      const points = pen.points, last = points.at(-1);
+      if (point[0] === last[0] && point[1] === last[1]) return;
+      if (points.length >= 100) pen.points = points.filter((_,i) => i % 2 === 0);
+      pen.points.push(point);
+    }
+    function finish() {
+      if (!pen) return;
+      const {color,points} = pen; pen = null;
+      if (points.length === 1) points.push(points[0]);
+      submit({type:'stroke',id:randomId(),color,points});
+      // The next host snapshot includes the submitted line.
+      paint();
+    }
+    canvas.onpointerdown = ev => {
+      if (!online || current.full || pen || ev.button !== 0) return;
+      ev.preventDefault(); canvas.setPointerCapture(ev.pointerId); showCursor = false;
+      pen = {pointer:ev.pointerId, color, points:[position(ev)]}; paint();
+    };
+    canvas.onpointermove = ev => {
+      if (!pen || pen.pointer !== ev.pointerId) return;
+      addPoint(position(ev)); paint();
+    };
+    canvas.onpointerup = ev => {
+      if (!pen || pen.pointer !== ev.pointerId) return;
+      addPoint(position(ev)); finish();
+    };
+    canvas.onlostpointercapture = canvas.onpointercancel = ev => {
+      if (pen?.pointer === ev.pointerId) { pen = null; paint(); }
+    };
+    const arrows = {ArrowLeft:[-.025,0],ArrowRight:[.025,0],ArrowUp:[0,-.04],ArrowDown:[0,.04]};
+    canvas.onkeydown = ev => {
+      if (!online || current.full || (pen && pen.pointer !== 'keyboard')) return;
+      if (!Object.hasOwn(arrows,ev.key) && ![' ','Enter','Escape'].includes(ev.key)) return;
+      ev.preventDefault(); showCursor = true;
+      if (ev.key === 'Escape') pen = null;
+      else if (Object.hasOwn(arrows,ev.key)) {
+        cursor = cursor.map((v,i) => rounded(v + arrows[ev.key][i]));
+        if (pen) addPoint(cursor);
+      } else if (!ev.repeat) {
+        if (pen) finish();
+        else pen = {pointer:'keyboard',color,points:[cursor]};
+      }
+      paint();
+    };
+    canvas.onblur = () => { showCursor = false; if (pen?.pointer === 'keyboard') pen = null; paint(); };
+    render(current); setStatus('Connecting…',false);
+    return {render, setStatus, receipt};
+  };
+})();
+</script>
+<script>
+(() => {
+  const root = document.getElementById('join');
+  if (window.parent !== window && (location.hash === '#preview' || location.href === 'about:srcdoc')) {
+    const ui = window.mountAudience(root, {send(msg) { parent.postMessage({type:'ld-preview-input',msg}, '*'); }});
+    ui.setStatus('Local rehearsal',true);
+    window.addEventListener('message', event => {
+      if (event.source !== parent) return;
+      if (event.data?.type === 'ld-preview-state') ui.render(event.data.state);
+      if (event.data?.type === 'ld-preview-receipt') ui.receipt(event.data);
+    });
+    parent.postMessage({type:'ld-preview-ready'}, '*');
+    return;
+  }
+  const params = new URLSearchParams(location.hash.slice(1));
+  const room = params.get('r'), token = params.get('t');
+  let socket = null, timer = null, attempts = 0, decks = 0, receivedState = false;
+  const ui = window.mountAudience(root, {send(msg) {
+    if (socket?.readyState !== WebSocket.OPEN || !decks || !receivedState) return false;
+    try { socket.send(JSON.stringify(msg)); return true; } catch { return false; }
+  }});
+  if (!room || !token || !['http:','https:'].includes(location.protocol)) {
+    ui.setStatus('Scan the slide’s audience QR',false);
+    root.querySelector('.p-title').textContent = 'Join from the slide';
+    root.querySelector('.p-help').textContent = 'Scan the audience QR code on the presentation screen to open this room.';
+    return;
+  }
+  const url = new URL('/ws',location.origin);
+  url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.search = new URLSearchParams({room,token,role:'remote'}).toString();
+  function schedule() {
+    ui.setStatus('Reconnecting…',false);
+    clearTimeout(timer);
+    timer = setTimeout(connect, Math.min(10000, 500 * 2**Math.min(5,attempts++)));
+  }
+  function connect() {
+    clearTimeout(timer);
+    if (socket && [WebSocket.CONNECTING, WebSocket.OPEN].includes(socket.readyState)) return;
+    decks = 0; receivedState = false;
+    ui.setStatus('Connecting…',false);
+    let ws;
+    try { ws = new WebSocket(url); } catch { schedule(); return; }
+    socket = ws;
+    ws.onopen = () => {
+      if (socket !== ws) return;
+      attempts = 0; ui.setStatus('Waiting for presenter',false);
+      ws.send(JSON.stringify({type:'request_state'}));
+    };
+    ws.onmessage = event => {
+      if (socket !== ws || typeof event.data !== 'string') return;
+      let msg; try { msg = JSON.parse(event.data); } catch { return; }
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'presence') {
+        decks = msg.decks;
+        if (!decks) receivedState = false;
+      } else if (msg.type === 'state') {
+        ui.render(msg); receivedState = true;
+      } else if (msg.type === 'receipt') { ui.receipt(msg); return; }
+      else return;
+      const ready = decks > 0 && receivedState;
+      ui.setStatus(ready ? 'Connected' : 'Waiting for presenter',ready);
+    };
+    ws.onclose = () => { if (socket === ws) { socket = null; schedule(); } };
+  }
+  addEventListener('pagehide', () => {
+    clearTimeout(timer); const old = socket; socket = null; old?.close();
+  });
+  addEventListener('pageshow',connect);
+  addEventListener('online',connect);
+  document.addEventListener('visibilitychange',() => { if (!document.hidden) connect(); });
+  connect();
+})();
+</script>
+</body></html>

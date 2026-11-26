@@ -12,6 +12,8 @@
  *   npx wrangler deploy
  */
 
+import audiencePage from './join.html';
+
 const ROOM_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 export default {
@@ -25,6 +27,15 @@ export default {
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    if (url.pathname === '/decks/join.html') {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        return new Response(null, { status: 405, headers: { ...corsHeaders, Allow: 'GET, HEAD, OPTIONS' } });
+      }
+      return new Response(request.method === 'HEAD' ? null : audiencePage, {
+        headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+      });
     }
 
     if (url.pathname === '/health') {

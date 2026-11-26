@@ -98,6 +98,17 @@ Cloudflare prints a permanent HTTPS/WSS URL such as `https://slides-remote.<your
 * **Automatic failover:** Press **`R`** in any deck, paste your `workers.dev` URL into **Backup Relay**, and click **Connect** (or pass `backupRelay: 'https://...'` in `SlideRemote.init`). If your Tailscale Funnel machine is unreachable, `remote.js` automatically fails over to the Cloudflare Worker and updates the QR code.
 * **Works with standalone HTML files too:** Open a local `.html` presentation (e.g., downloaded from Google Drive), press **`R`**, paste your `workers.dev` URL, and scan the QR code — the Worker serves the phone touch controller directly.
 
+### LiveDeck audience participation
+
+The Worker serves the LiveDeck phone page at `/decks/join.html` on the same HTTPS origin as its WebSocket relay.
+A standalone LiveDeck projector can use the Worker as its relay, show a public audience QR and receive votes
+or drawing strokes from phones on cellular. The audience scans once and follows the active slide.
+The presenter pairs separately through `/remote`.
+
+`cloudflare-worker/join.html` is the standalone participant page from LiveDeck's `src/livedeck/web/join.html`.
+Keep the copies in sync when the audience protocol or phone UI changes. Wrangler includes this HTML text
+module when deploying the Worker.
+
 ### Standalone Single-File Export (Works Without Tailscale or Any Server)
 
 Want a single `.html` file you can copy to any podium PC (via USB, AirDrop, or Google Drive) with **both** relays baked in — without committing your personal URLs to Git?

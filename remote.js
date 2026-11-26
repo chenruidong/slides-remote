@@ -173,9 +173,17 @@
       .sr-btn { cursor:pointer; border:none; border-radius:8px; padding:7px 12px; font-size:12px; font-weight:600; transition:opacity .15s; }
       .sr-btn:hover { opacity:.9; }
       .sr-sim-drawer { position:fixed; right:16px; bottom:16px; width:320px; max-width:calc(100vw - 32px); z-index:9998; border-radius:22px; background:#0f172a; color:#f1f5f9; border:2px solid #334155; padding:14px; box-shadow:0 20px 50px rgba(0,0,0,.45); font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
-      .sr-pad { touch-action:none; user-select:none; -webkit-user-select:none; position:relative; width:100%; aspect-ratio:16/9; border-radius:12px; background:#020617; border:2px solid #334155; overflow:hidden; display:flex; align-items:center; justify-content:center; cursor:crosshair; }
-      .sr-remote-wrap { display:flex; flex-direction:column; gap:11px; max-width:440px; margin:0 auto; padding:14px; min-height:100dvh; }
+      .sr-pad { touch-action:none; user-select:none; -webkit-user-select:none; position:relative; width:100%; border-radius:14px; background:#020617; border:2px solid #334155; overflow:hidden; display:flex; align-items:center; justify-content:center; cursor:crosshair; }
+      .sr-remote-wrap { display:flex; flex-direction:column; gap:10px; max-width:460px; margin:0 auto; padding:12px 14px max(14px, env(safe-area-inset-bottom)); height:100dvh; overflow-y:auto; }
+      .sr-remote-wrap .sr-pad { flex:1; min-height:200px; }
       .sr-sim-wrap { display:flex; flex-direction:column; gap:9px; }
+      .sr-sim-wrap .sr-pad { aspect-ratio:16/10; min-height:165px; }
+      .sr-nav-btn { cursor:pointer; touch-action:manipulation; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent; transition:transform .08s ease, filter .08s ease; }
+      .sr-nav-btn:active { transform:scale(0.97); filter:brightness(1.12); }
+      .sr-gesture-hover { outline:2px dashed rgba(29,92,168,.65); outline-offset:4px; border-radius:8px; transition:outline-color .12s, box-shadow .12s; }
+      .sr-gesture-active { outline:2.5px solid #1d5ca8; outline-offset:4px; border-radius:8px; box-shadow:0 0 0 5px rgba(29,92,168,.18); transition:outline-color .12s, box-shadow .12s; }
+      .sr-gesture-hud { position:absolute; left:50%; bottom:12px; transform:translateX(-50%); z-index:998; pointer-events:none; background:rgba(15,23,42,.92); color:#f8fafc; border:1px solid #3b82f6; border-radius:9999px; padding:5px 12px; font-size:11.5px; font-weight:600; white-space:nowrap; box-shadow:0 8px 24px rgba(0,0,0,.28); opacity:0; transition:opacity .15s ease; }
+      .sr-gesture-hud.visible { opacity:1; }
     `;
     document.head.appendChild(style);
   }
@@ -205,55 +213,74 @@
   function createControllerUI(mountEl, { isSim, sendMsg, onCloseSim }) {
     injectStyles();
     let pointerMode = 'dot';
+    let notesOpen = false;
     let timerSec = 0, timerRun = false, timerId = null;
 
+    const prevStyle = isSim
+      ? 'min-height:56px;border-radius:12px;background:#1e293b;border:1px solid #334155;color:#f8fafc;font-weight:700;font-size:14px'
+      : 'min-height:clamp(92px,16dvh,140px);border-radius:16px;background:#1e293b;border:1.5px solid #475569;color:#f8fafc;font-weight:700;font-size:18px';
+    const nextStyle = isSim
+      ? 'min-height:56px;border-radius:12px;background:#1d5ca8;border:none;color:#fff;font-weight:800;font-size:16px'
+      : 'min-height:clamp(92px,16dvh,140px);border-radius:16px;background:#1d5ca8;border:none;color:#fff;font-weight:800;font-size:21px;box-shadow:0 6px 20px rgba(29,92,168,.35)';
+
     mountEl.innerHTML = `<div class="${isSim ? 'sr-sim-wrap' : 'sr-remote-wrap'}">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0">
         <div data-sr="conn" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:${isSim ? '#86efac' : '#fcd34d'}">
           <span style="width:8px;height:8px;border-radius:9999px;background:${isSim ? '#22c55e' : '#f59e0b'}"></span>
           <span>${isSim ? 'Phone Simulator' : 'Connecting…'}</span>
         </div>
         <div style="display:flex;align-items:center;gap:6px">
+          <button data-sr="toggleNotes" aria-expanded="false" style="cursor:pointer;font-size:11px;font-weight:700;padding:4px 9px;border-radius:9999px;background:#1e293b;color:#94a3b8;border:1px solid #334155">Notes</button>
           <button data-sr="timer" style="cursor:pointer;font-family:ui-monospace,monospace;font-size:11px;padding:4px 9px;border-radius:9999px;background:#1e293b;color:#cbd5e1;border:1px solid #334155">00:00 ▸</button>
           ${isSim ? `<button data-sr="closeSim" style="cursor:pointer;background:transparent;border:none;color:#94a3b8;font-size:12px;padding:3px 6px">✕</button>` : ''}
         </div>
       </div>
 
-      <div style="border-radius:12px;background:#1e293b;border:1px solid #334155;padding:9px 12px">
+      <div style="border-radius:12px;background:#1e293b;border:1px solid #334155;padding:8px 11px;flex-shrink:0">
         <div data-sr="meta" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#93c5fd;font-weight:700">Waiting for deck…</div>
         <div data-sr="title" style="font-size:13px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">—</div>
       </div>
 
-      <div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;font-size:11px;color:#94a3b8">
+      <div data-sr="notesCard" style="display:none;border-radius:12px;background:rgba(30,41,59,.9);border:1px solid #334155;padding:9px 12px;max-height:22dvh;overflow-y:auto;flex-shrink:0">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;color:#94a3b8;margin-bottom:4px">Speaker Notes</div>
+        <div data-sr="notes" style="font-size:12.5px;line-height:1.45;color:#e2e8f0"></div>
+      </div>
+
+      <div data-sr="controls" style="display:none;border-radius:12px;background:rgba(23,37,84,.65);border:1px solid #1d5ca8;padding:9px 10px;flex-direction:column;gap:8px;flex-shrink:0"></div>
+
+      <div style="display:flex;flex-direction:column;${isSim ? '' : 'flex:1;min-height:0;'}">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;font-size:11px;color:#94a3b8;flex-shrink:0">
           <span style="font-weight:600">Touchpad Laser Pointer</span>
           <div style="display:flex;gap:4px">
-            <button data-sr="modeDot" style="cursor:pointer;border:none;padding:2px 8px;border-radius:5px;font-size:10.5px;font-weight:700;background:#ef4444;color:#fff">Dot</button>
-            <button data-sr="modeSpot" style="cursor:pointer;border:none;padding:2px 8px;border-radius:5px;font-size:10.5px;font-weight:700;background:#1e293b;color:#94a3b8">Spotlight</button>
+            <button data-sr="modeDot" style="cursor:pointer;border:none;padding:3px 9px;border-radius:6px;font-size:10.5px;font-weight:700;background:#ef4444;color:#fff">Dot</button>
+            <button data-sr="modeSpot" style="cursor:pointer;border:none;padding:3px 9px;border-radius:6px;font-size:10.5px;font-weight:700;background:#1e293b;color:#94a3b8">Spotlight</button>
           </div>
         </div>
         <div data-sr="pad" class="sr-pad">
           <div style="position:absolute;inset:0;opacity:.16;pointer-events:none;background-image:linear-gradient(to right,#64748b 1px,transparent 1px),linear-gradient(to bottom,#64748b 1px,transparent 1px);background-size:25% 25%"></div>
-          <span style="font-size:11px;color:#64748b;pointer-events:none">Drag finger here to point on slide</span>
+          <span data-sr="padHint" style="font-size:11.5px;color:#64748b;pointer-events:none;text-align:center;padding:0 12px">Drag finger here to point on slide</span>
           <div data-sr="thumb" style="display:none;position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:9999px;background:#ef4444;box-shadow:0 0 0 4px rgba(239,68,68,.3);pointer-events:none"></div>
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
-        <button data-sr="prev" style="cursor:pointer;padding:13px 0;border-radius:12px;background:#1e293b;border:1px solid #334155;color:#fff;font-weight:700;font-size:14px">← Prev</button>
-        <button data-sr="next" style="cursor:pointer;padding:13px 0;border-radius:12px;background:#1d5ca8;border:none;color:#fff;font-weight:800;font-size:15px">Next Slide →</button>
-      </div>
-
-      <div data-sr="controls" style="display:none;border-radius:12px;background:rgba(23,37,84,.65);border:1px solid #1d5ca8;padding:10px;flex-direction:column;gap:8px"></div>
-
-      <div style="border-radius:12px;background:rgba(30,41,59,.85);border:1px solid #334155;padding:10px 12px;flex:1">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;color:#94a3b8;margin-bottom:4px">Speaker Notes</div>
-        <div data-sr="notes" style="font-size:12.5px;line-height:1.5;color:#e2e8f0"></div>
+      <div style="display:grid;grid-template-columns:1fr 1.85fr;gap:10px;flex-shrink:0">
+        <button data-sr="prev" class="sr-nav-btn" style="${prevStyle}">← Prev</button>
+        <button data-sr="next" class="sr-nav-btn" style="${nextStyle}">Next →</button>
       </div>
     </div>`;
 
     const q = name => mountEl.querySelector(`[data-sr="${name}"]`);
     const pad = q('pad'), thumb = q('thumb'), modeDot = q('modeDot'), modeSpot = q('modeSpot');
+    const notesBtn = q('toggleNotes'), notesCard = q('notesCard');
+
+    notesBtn?.addEventListener('click', () => {
+      notesOpen = !notesOpen;
+      notesCard.style.display = notesOpen ? 'block' : 'none';
+      notesBtn.setAttribute?.('aria-expanded', String(notesOpen));
+      notesBtn.style.background = notesOpen ? '#1d5ca8' : '#1e293b';
+      notesBtn.style.color = notesOpen ? '#fff' : '#94a3b8';
+      notesBtn.style.borderColor = notesOpen ? 'transparent' : '#334155';
+    });
 
     q('closeSim')?.addEventListener('click', () => onCloseSim?.());
     q('prev').addEventListener('click', () => { navigator.vibrate?.(12); sendMsg({ type: 'nav', action: 'prev' }); });
@@ -282,26 +309,89 @@
       if (timerRun) timerId = setInterval(() => { timerSec++; drawTimer(); }, 1000);
     });
 
-    // Pointer / touch tracking
-    let dragging = false, lastSent = 0;
-    const emitPos = (cx, cy) => {
+    // Pointer / touch tracking (with lossless relative drag + tap detection)
+    const padHint = q('padHint');
+    let dragging = false, lastSent = 0, downTime = 0, downX = 0, downY = 0, prevX = 0, prevY = 0, accDx = 0, accDy = 0, moved = false;
+    const padPos = (cx, cy) => {
       const r = pad.getBoundingClientRect();
-      const nx = Math.max(0, Math.min(1, (cx - r.left) / r.width));
-      const ny = Math.max(0, Math.min(1, (cy - r.top) / r.height));
+      const w = r.width || 1, h = r.height || 1;
+      return [
+        Math.max(0, Math.min(1, (cx - r.left) / w)),
+        Math.max(0, Math.min(1, (cy - r.top) / h))
+      ];
+    };
+    const showThumb = (nx, ny) => {
       thumb.style.display = 'block';
       thumb.style.left = `${(nx * 100).toFixed(1)}%`;
       thumb.style.top = `${(ny * 100).toFixed(1)}%`;
+    };
+    pad.addEventListener('pointerdown', e => {
+      dragging = true;
+      moved = false;
+      downTime = performance.now();
+      pad.setPointerCapture?.(e.pointerId);
+      const [nx, ny] = padPos(e.clientX, e.clientY);
+      downX = prevX = nx;
+      downY = prevY = ny;
+      accDx = 0;
+      accDy = 0;
+      lastSent = downTime;
+      showThumb(nx, ny);
+      sendMsg({ type: 'pointer', phase: 'start', x: nx, y: ny, dx: 0, dy: 0, mode: pointerMode });
+    });
+    pad.addEventListener('pointermove', e => {
+      if (!dragging) return;
+      const [nx, ny] = padPos(e.clientX, e.clientY);
+      accDx += nx - prevX;
+      accDy += ny - prevY;
+      prevX = nx;
+      prevY = ny;
+      if (!moved && Math.hypot(nx - downX, ny - downY) > 0.03) moved = true;
+      showThumb(nx, ny);
       const now = performance.now();
       if (now - lastSent >= 18) {
         lastSent = now;
-        sendMsg({ type: 'pointer', x: nx, y: ny, mode: pointerMode });
+        const dx = accDx, dy = accDy;
+        accDx = 0;
+        accDy = 0;
+        sendMsg({ type: 'pointer', phase: 'move', x: nx, y: ny, dx, dy, mode: pointerMode });
       }
+    });
+    const endDrag = (isCancel) => {
+      if (!dragging) return;
+      dragging = false;
+      thumb.style.display = 'none';
+      if (moved && (accDx !== 0 || accDy !== 0)) {
+        sendMsg({ type: 'pointer', phase: 'move', x: prevX, y: prevY, dx: accDx, dy: accDy, mode: pointerMode });
+        accDx = 0;
+        accDy = 0;
+      }
+      if (!isCancel && !moved && (performance.now() - downTime) < 350) {
+        navigator.vibrate?.(10);
+        sendMsg({ type: 'pointer_tap', x: prevX, y: prevY, mode: pointerMode });
+      }
+      sendMsg({ type: 'pointer_hide' });
     };
-    pad.addEventListener('pointerdown', e => { dragging = true; pad.setPointerCapture?.(e.pointerId); emitPos(e.clientX, e.clientY); });
-    pad.addEventListener('pointermove', e => { if (dragging) emitPos(e.clientX, e.clientY); });
-    const endDrag = () => { if (!dragging) return; dragging = false; thumb.style.display = 'none'; sendMsg({ type: 'pointer_hide' }); };
-    pad.addEventListener('pointerup', endDrag);
-    pad.addEventListener('pointercancel', endDrag);
+    pad.addEventListener('pointerup', () => endDrag(false));
+    pad.addEventListener('pointercancel', () => endDrag(true));
+
+    function setGestureState(msg) {
+      if (msg && msg.active) {
+        pad.style.borderColor = '#3b82f6';
+        pad.style.boxShadow = '0 0 0 2px rgba(59,130,246,.35)';
+        if (padHint) {
+          padHint.textContent = `${msg.label || 'Control'} · ${msg.hint || 'Drag to adjust · tap away to release'}`;
+          padHint.style.color = '#93c5fd';
+        }
+      } else {
+        pad.style.borderColor = '#334155';
+        pad.style.boxShadow = 'none';
+        if (padHint) {
+          padHint.textContent = 'Drag finger here to point on slide';
+          padHint.style.color = '#64748b';
+        }
+      }
+    }
 
     function setConnectionStatus(status, peers) {
       if (isSim) return;
@@ -371,7 +461,7 @@
       if (hasButtons) box.appendChild(btnRow);
     }
 
-    return { setConnectionStatus, renderState };
+    return { setConnectionStatus, renderState, setGestureState };
   }
 
   /* ==========================================================================
@@ -409,8 +499,9 @@
         let msg; try { msg = JSON.parse(ev.data); } catch { return; }
         if (msg.type === 'presence') { peers = msg.decks || 0; ui.setConnectionStatus('connected', peers); }
         else if (msg.type === 'state') ui.renderState(msg);
+        else if (msg.type === 'gesture_state') ui.setGestureState(msg);
       };
-      ws.onclose = () => { ui.setConnectionStatus('offline', 0); reconnectTimer = setTimeout(connect, 2200); };
+      ws.onclose = () => { ui.setGestureState({ active: false }); ui.setConnectionStatus('offline', 0); reconnectTimer = setTimeout(connect, 2200); };
       ws.onerror = () => {};
     }
 
@@ -424,11 +515,182 @@
   }
 
   /* ==========================================================================
-     5. PROJECTOR DECK INTEGRATION: SlideRemote.init(options)
+     5. REUSABLE STAGE GESTURE CONTROLS (Registry + Built-in Handlers)
+     ========================================================================== */
+  function clampNum(v, min, max) {
+    return Math.min(max, Math.max(min, v));
+  }
+
+  function dispatchSimpleEvent(el, name) {
+    if (!el || typeof el.dispatchEvent !== 'function' || typeof Event !== 'function') return;
+    el.dispatchEvent(new Event(name, { bubbles: true }));
+  }
+
+  function dispatchCustomEvent(el, name, detail) {
+    if (!el || typeof el.dispatchEvent !== 'function') return;
+    if (typeof CustomEvent === 'function') {
+      el.dispatchEvent(new CustomEvent(name, { bubbles: true, detail }));
+    }
+  }
+
+  function createRangeSliderHandler(axis) {
+    return {
+      hint: axis === 'y'
+        ? 'Drag ↑ ↓ to adjust · tap away to release'
+        : 'Drag ← → to adjust · tap away to release',
+      onActivate(ctx) {
+        const { el, target, config } = ctx;
+        const inp = (target && target.type === 'range')
+          ? target
+          : ((el.tagName === 'INPUT' && el.type === 'range') ? el : el.querySelector?.('input[type="range"]'));
+        if (!inp) return false;
+        const min = Number.isFinite(Number(inp.min)) && inp.min !== '' ? Number(inp.min) : 0;
+        const max = Number.isFinite(Number(inp.max)) && inp.max !== '' ? Number(inp.max) : 100;
+        const step = Number(inp.step) > 0 ? Number(inp.step) : 1;
+        const decMatch = String(step).match(/\.(\d+)/);
+        const decimals = decMatch ? decMatch[1].length : 0;
+        const current = Number.isFinite(Number(inp.value)) ? Number(inp.value) : min;
+        ctx.state = {
+          inp,
+          min,
+          max,
+          step,
+          decimals,
+          raw: current,
+          lastApplied: current,
+          sensitivity: Number(config.sensitivity) > 0 ? Number(config.sensitivity) : 1.4,
+          invert: config.invert === true || config.invert === 'true'
+        };
+      },
+      onDrag(ctx) {
+        const s = ctx.state;
+        if (!s) return;
+        const deltaNorm = axis === 'y' ? -(ctx.dy || 0) : (ctx.dx || 0);
+        const signed = s.invert ? -deltaNorm : deltaNorm;
+        const span = s.max - s.min;
+        if (span <= 0) return;
+        s.raw = clampNum(s.raw + signed * span * s.sensitivity, s.min, s.max);
+        const snapped = s.min + Math.round((s.raw - s.min) / s.step) * s.step;
+        const val = Number(clampNum(snapped, s.min, s.max).toFixed(s.decimals));
+        if (val !== s.lastApplied) {
+          s.lastApplied = val;
+          s.inp.value = String(val);
+          dispatchSimpleEvent(s.inp, 'input');
+          dispatchSimpleEvent(s.inp, 'change');
+        }
+      }
+    };
+  }
+
+  const gestureTypes = {
+    'slider-x': createRangeSliderHandler('x'),
+    'slider-y': createRangeSliderHandler('y'),
+    counter: {
+      hint: 'Tap to step · drag ← → to adjust · tap away to release',
+      onActivate(ctx) {
+        const { el, target, config } = ctx;
+        const vt = config.valueTarget ? (el.querySelector?.(config.valueTarget) || document.querySelector?.(config.valueTarget)) : target;
+        const step = Number(config.step) > 0 ? Number(config.step) : 1;
+        const min = config.min !== undefined && config.min !== '' && Number.isFinite(Number(config.min)) ? Number(config.min) : -Infinity;
+        const max = config.max !== undefined && config.max !== '' && Number.isFinite(Number(config.max)) ? Number(config.max) : Infinity;
+        const rawInit = el.dataset?.srValue !== undefined ? Number(el.dataset.srValue) : (('value' in vt && vt.value !== undefined && vt.value !== '') ? Number(vt.value) : parseFloat(vt?.textContent || '0'));
+        const value = Number.isFinite(rawInit) ? rawInit : 0;
+        ctx.state = { vt: vt || el, step, min, max, value, dragAccum: 0 };
+        const applyDelta = (delta) => {
+          const s = ctx.state;
+          const next = clampNum(s.value + delta, s.min, s.max);
+          if (next === s.value) return;
+          s.value = next;
+          if (el.dataset) el.dataset.srValue = String(next);
+          if (s.vt && 'value' in s.vt && s.vt.tagName === 'INPUT') s.vt.value = String(next);
+          else if (s.vt) s.vt.textContent = String(next);
+          dispatchCustomEvent(el, 'sr-gesture-change', { value: next, delta, type: 'counter' });
+        };
+        ctx.state.applyDelta = applyDelta;
+        if (config.activateStep !== false && config.activateStep !== 'false') {
+          applyDelta(step);
+        }
+      },
+      onTap(ctx) {
+        ctx.state?.applyDelta(ctx.state.step);
+      },
+      onDrag(ctx) {
+        const s = ctx.state;
+        if (!s) return;
+        s.dragAccum += (ctx.dx || 0);
+        const unit = 0.08;
+        while (Math.abs(s.dragAccum) >= unit) {
+          const dir = s.dragAccum > 0 ? 1 : -1;
+          s.dragAccum -= dir * unit;
+          s.applyDelta(dir * s.step);
+        }
+      }
+    },
+    resize: {
+      hint: 'Drag to resize · tap away to release',
+      onActivate(ctx) {
+        const { el, target, config } = ctx;
+        const box = target || el;
+        const rect = box.getBoundingClientRect ? box.getBoundingClientRect() : { width: 120, height: 80 };
+        const w = rect.width || box.offsetWidth || 120;
+        const h = rect.height || box.offsetHeight || 80;
+        ctx.state = {
+          box,
+          w,
+          h,
+          ratio: w / Math.max(1, h),
+          minW: Number(config.minW) > 0 ? Number(config.minW) : 40,
+          maxW: Number(config.maxW) > 0 ? Number(config.maxW) : Infinity,
+          minH: Number(config.minH) > 0 ? Number(config.minH) : 40,
+          maxH: Number(config.maxH) > 0 ? Number(config.maxH) : Infinity,
+          aspect: config.aspect === true || config.aspect === 'true'
+        };
+      },
+      onDrag(ctx) {
+        const s = ctx.state;
+        if (!s) return;
+        const sw = ctx.stageRect?.width || 1000;
+        const sh = ctx.stageRect?.height || 562.5;
+        const dxPx = (ctx.dx || 0) * sw;
+        const dyPx = (ctx.dy || 0) * sh;
+        s.w = clampNum(s.w + dxPx, s.minW, s.maxW);
+        if (s.aspect) {
+          s.h = clampNum(s.w / Math.max(0.01, s.ratio), s.minH, s.maxH);
+        } else {
+          s.h = clampNum(s.h + dyPx, s.minH, s.maxH);
+        }
+        const rw = Math.round(s.w), rh = Math.round(s.h);
+        if (s.box.style) {
+          s.box.style.width = `${rw}px`;
+          s.box.style.height = `${rh}px`;
+        }
+        dispatchCustomEvent(ctx.el, 'sr-gesture-resize', { width: rw, height: rh });
+      }
+    },
+    toggle: {
+      hint: 'Tap to toggle',
+      onActivate(ctx) {
+        (ctx.target || ctx.el).click?.();
+        return false;
+      }
+    }
+  };
+
+  function registerGestureType(name, handler) {
+    if (!name || !handler) return;
+    gestureTypes[name] = handler;
+  }
+
+  /* ==========================================================================
+     6. PROJECTOR DECK INTEGRATION: SlideRemote.init(options)
      ========================================================================== */
   function init(opts = {}) {
     injectStyles();
-    const { stageSelector = '#slideStage', getState, onNav, onAction, onStatusChange, bindKeyR = true } = opts;
+    const { stageSelector = '#slideStage', getState, onNav, onAction, onStatusChange, bindKeyR = true, gesture = {} } = opts;
+    const gestureOpts = {
+      activateRadius: Number(gesture.activateRadius) > 0 ? Number(gesture.activateRadius) : 0.045,
+      deactivateRadius: Number(gesture.deactivateRadius) > 0 ? Number(gesture.deactivateRadius) : 0.09
+    };
     const params = new URLSearchParams(location.search);
 
     function safeGet(kind, key) { try { return global[kind]?.getItem(key) ?? null; } catch { return null; } }
@@ -450,6 +712,8 @@
 
     let ws = null, reconnectTimer = null, connectTimer = null, remoteCount = 0;
     let modalEl = null, simEl = null, simUI = null, laserEl = null, laserVis = null, laserTimer = null;
+    let hudEl = null, activeGesture = null, hoveredEl = null;
+    const manualGestures = [];
 
     function ensureLaser() {
       const stage = document.querySelector(stageSelector);
@@ -466,7 +730,17 @@
       return stage;
     }
 
-    function showLaser(nx, ny, mode) {
+    function ensureHud(stage) {
+      if (!stage) return null;
+      if (!hudEl || !stage.contains(hudEl)) {
+        hudEl = document.createElement('div');
+        hudEl.className = 'sr-gesture-hud';
+        stage.appendChild(hudEl);
+      }
+      return hudEl;
+    }
+
+    function showLaser(nx, ny, mode, duration = 2200) {
       const stage = ensureLaser();
       if (!stage) return;
       const x = Math.max(0, Math.min(1, nx)) * stage.clientWidth;
@@ -475,23 +749,282 @@
       laserEl.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
       laserEl.classList.add('visible');
       clearTimeout(laserTimer);
-      laserTimer = setTimeout(hideLaser, 2200);
+      laserTimer = setTimeout(hideLaser, duration);
     }
 
     function hideLaser() {
       if (laserEl) laserEl.classList.remove('visible');
     }
 
+    function sendGestureState(payload) {
+      const msg = { ...payload, type: 'gesture_state' };
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify(msg)); } catch {}
+      }
+      if (simUI) simUI.setGestureState?.(msg);
+    }
+
+    function clearHover() {
+      if (hoveredEl) {
+        hoveredEl.classList?.remove('sr-gesture-hover');
+        hoveredEl = null;
+      }
+    }
+
+    function parseDomGestureConfig(el) {
+      const ds = el.dataset || {};
+      return {
+        type: ds.srGesture,
+        label: ds.srLabel || '',
+        target: ds.srTarget || '',
+        sensitivity: ds.srSensitivity,
+        radius: ds.srRadius,
+        step: ds.srStep,
+        min: ds.srMin,
+        max: ds.srMax,
+        invert: ds.srInvert,
+        aspect: ds.srAspect,
+        minW: ds.srMinW,
+        maxW: ds.srMaxW,
+        minH: ds.srMinH,
+        maxH: ds.srMaxH,
+        valueTarget: ds.srValueTarget,
+        activateStep: ds.srActivateStep
+      };
+    }
+
+    function getGestureEntries(stage) {
+      const entries = [];
+      const seen = new Set();
+      for (const m of manualGestures) {
+        if (m.el && stage.contains(m.el)) {
+          entries.push(m);
+          seen.add(m.el);
+        }
+      }
+      const nodes = stage.querySelectorAll ? stage.querySelectorAll('[data-sr-gesture]') : [];
+      for (const el of nodes) {
+        if (seen.has(el)) continue;
+        const config = parseDomGestureConfig(el);
+        if (config.type) entries.push({ el, type: config.type, config });
+      }
+      return entries;
+    }
+
+    function measureControls(stage, nx, ny) {
+      const entries = getGestureEntries(stage);
+      if (entries.length === 0) return [];
+      const sr = stage.getBoundingClientRect();
+      const sw = sr.width || stage.clientWidth || 1;
+      const sh = sr.height || stage.clientHeight || 1;
+      const diag = Math.hypot(sw, sh) || 1;
+      const px = sr.left + clampNum(nx, 0, 1) * sw;
+      const py = sr.top + clampNum(ny, 0, 1) * sh;
+      return entries.map(entry => {
+        const er = entry.el.getBoundingClientRect();
+        const cx = clampNum(px, er.left, er.right);
+        const cy = clampNum(py, er.top, er.bottom);
+        const distPx = Math.hypot(px - cx, py - cy);
+        const centerDistPx = Math.hypot(px - (er.left + er.width / 2), py - (er.top + er.height / 2));
+        return {
+          entry,
+          er,
+          sr,
+          distPx,
+          normDist: distPx / diag,
+          centerDistPx
+        };
+      }).sort((a, b) => (a.normDist - b.normDist) || (a.centerDistPx - b.centerDistPx));
+    }
+
+    function resolveTarget(el, config) {
+      if (!config.target) return el;
+      if (typeof config.target === 'string') {
+        return el.querySelector?.(config.target) || document.querySelector?.(config.target) || el;
+      }
+      return config.target;
+    }
+
+    function buildGestureCtx(active, stage, extra = {}) {
+      const stageRect = stage?.getBoundingClientRect ? stage.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
+      const elRect = active.el.getBoundingClientRect ? active.el.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
+      return {
+        el: active.el,
+        target: active.target,
+        config: active.config,
+        stage,
+        stageRect,
+        elRect,
+        state: active.state,
+        ...extra
+      };
+    }
+
+    function deactivateGesture() {
+      if (!activeGesture) return;
+      const prev = activeGesture;
+      const stage = document.querySelector(stageSelector);
+      try {
+        prev.handler.onDeactivate?.(buildGestureCtx(prev, stage));
+      } catch {}
+      prev.el.classList?.remove('sr-gesture-active');
+      if (hudEl) hudEl.classList.remove('visible');
+      activeGesture = null;
+      sendGestureState({ active: false });
+    }
+
+    function activateGesture(entry, stage, nx, ny) {
+      const handler = gestureTypes[entry.type];
+      if (!handler) return false;
+      if (activeGesture && activeGesture.el !== entry.el) {
+        deactivateGesture();
+      }
+      clearHover();
+      const target = resolveTarget(entry.el, entry.config);
+      const next = {
+        el: entry.el,
+        target,
+        type: entry.type,
+        config: entry.config,
+        handler,
+        state: null,
+        strokeStart: { x: nx, y: ny },
+        strokeLast: { x: nx, y: ny },
+        totalDx: 0,
+        totalDy: 0
+      };
+      const ctx = buildGestureCtx(next, stage, { nx, ny });
+      const res = handler.onActivate?.(ctx);
+      next.state = ctx.state;
+      if (res === false) {
+        return false;
+      }
+      activeGesture = next;
+      entry.el.classList?.add('sr-gesture-active');
+      hideLaser();
+      const label = entry.config.label || entry.type;
+      const hint = entry.config.hint || handler.hint || 'Drag to adjust · tap away to release';
+      const hud = ensureHud(stage);
+      if (hud) {
+        hud.textContent = `● ${label} · ${hint}`;
+        hud.classList.add('visible');
+      }
+      sendGestureState({ active: true, label, hint, gestureType: entry.type });
+      return true;
+    }
+
+    function registerGesture(elOrSelector, config = {}) {
+      const el = typeof elOrSelector === 'string' ? document.querySelector(elOrSelector) : elOrSelector;
+      if (!el) return () => {};
+      const entry = { el, type: config.type || el.dataset?.srGesture || 'slider-x', config };
+      manualGestures.push(entry);
+      return () => {
+        const idx = manualGestures.indexOf(entry);
+        if (idx !== -1) manualGestures.splice(idx, 1);
+        if (activeGesture?.el === el) deactivateGesture();
+      };
+    }
+
     function handleCommand(msg) {
       if (!msg || !msg.type) return;
-      if (msg.type === 'request_state') sync();
-      else if (msg.type === 'nav') { hideLaser(); onNav?.(msg.action, msg.index); }
-      else if (msg.type === 'pointer') showLaser(msg.x, msg.y, msg.mode || 'dot');
-      else if (msg.type === 'pointer_hide') hideLaser();
-      else if (msg.type === 'action') onAction?.(msg.action, msg.payload);
+      const stage = document.querySelector(stageSelector);
+      if (activeGesture && (!stage || !stage.contains(activeGesture.el))) {
+        deactivateGesture();
+      }
+      if (msg.type === 'request_state') {
+        sync();
+      } else if (msg.type === 'nav') {
+        deactivateGesture();
+        hideLaser();
+        onNav?.(msg.action, msg.index);
+      } else if (msg.type === 'pointer_tap') {
+        if (!stage) return;
+        const measured = measureControls(stage, msg.x, msg.y);
+        if (!activeGesture) {
+          const hit = measured[0];
+          const rad = hit ? (Number(hit.entry.config.radius) > 0 ? Number(hit.entry.config.radius) : gestureOpts.activateRadius) : 0;
+          if (hit && hit.normDist <= rad) {
+            activateGesture(hit.entry, stage, msg.x, msg.y);
+          } else {
+            showLaser(msg.x, msg.y, msg.mode || 'dot', 500);
+          }
+          return;
+        }
+        const activeM = measured.find(m => m.entry.el === activeGesture.el);
+        const otherHit = measured.find(m => {
+          if (m.entry.el === activeGesture.el) return false;
+          const r = Number(m.entry.config.radius) > 0 ? Number(m.entry.config.radius) : gestureOpts.activateRadius;
+          return m.normDist <= r;
+        });
+        const activeDist = activeM ? activeM.normDist : Infinity;
+        if (otherHit && otherHit.normDist < activeDist) {
+          activateGesture(otherHit.entry, stage, msg.x, msg.y);
+        } else if (activeDist <= gestureOpts.deactivateRadius) {
+          const ctx = buildGestureCtx(activeGesture, stage, { nx: msg.x, ny: msg.y });
+          activeGesture.handler.onTap?.(ctx);
+        } else {
+          deactivateGesture();
+        }
+      } else if (msg.type === 'pointer') {
+        if (activeGesture && stage) {
+          if (msg.phase === 'start' || !activeGesture.strokeLast) {
+            activeGesture.strokeStart = { x: msg.x, y: msg.y };
+            activeGesture.strokeLast = { x: msg.x, y: msg.y };
+            activeGesture.totalDx = 0;
+            activeGesture.totalDy = 0;
+            if (msg.phase === 'start') {
+              activeGesture.handler.onDragStart?.(buildGestureCtx(activeGesture, stage, { nx: msg.x, ny: msg.y, dx: 0, dy: 0, totalDx: 0, totalDy: 0 }));
+              return;
+            }
+          }
+          const dx = typeof msg.dx === 'number' ? msg.dx : (msg.x - activeGesture.strokeLast.x);
+          const dy = typeof msg.dy === 'number' ? msg.dy : (msg.y - activeGesture.strokeLast.y);
+          activeGesture.strokeLast = { x: msg.x, y: msg.y };
+          activeGesture.totalDx += dx;
+          activeGesture.totalDy += dy;
+          activeGesture.handler.onDrag?.(buildGestureCtx(activeGesture, stage, {
+            nx: msg.x,
+            ny: msg.y,
+            dx,
+            dy,
+            totalDx: activeGesture.totalDx,
+            totalDy: activeGesture.totalDy
+          }));
+          return;
+        }
+        showLaser(msg.x, msg.y, msg.mode || 'dot');
+        if (stage) {
+          const measured = measureControls(stage, msg.x, msg.y);
+          const hit = measured[0];
+          const rad = hit ? (Number(hit.entry.config.radius) > 0 ? Number(hit.entry.config.radius) : gestureOpts.activateRadius) : 0;
+          const nextHover = (hit && hit.normDist <= rad) ? hit.entry.el : null;
+          if (nextHover !== hoveredEl) {
+            clearHover();
+            if (nextHover) {
+              nextHover.classList?.add('sr-gesture-hover');
+              hoveredEl = nextHover;
+            }
+          }
+        }
+      } else if (msg.type === 'pointer_hide') {
+        clearHover();
+        if (activeGesture && stage) {
+          activeGesture.handler.onDragEnd?.(buildGestureCtx(activeGesture, stage, {
+            totalDx: activeGesture.totalDx,
+            totalDy: activeGesture.totalDy
+          }));
+        }
+        hideLaser();
+      } else if (msg.type === 'action') {
+        onAction?.(msg.action, msg.payload);
+      }
     }
 
     function sync() {
+      const stage = document.querySelector(stageSelector);
+      if (activeGesture && (!stage || !stage.contains(activeGesture.el))) {
+        deactivateGesture();
+      }
       if (typeof getState !== 'function') return;
       const st = { type: 'state', ...getState() };
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -611,7 +1144,7 @@
       simUI = createControllerUI(simEl, {
         isSim: true,
         sendMsg: handleCommand,
-        onCloseSim: () => { simEl.remove(); simEl = null; simUI = null; hideLaser(); }
+        onCloseSim: () => { simEl.remove(); simEl = null; simUI = null; deactivateGesture(); hideLaser(); }
       });
       sync();
     }
@@ -710,13 +1243,22 @@
       document.addEventListener('keydown', (e) => {
         if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
         if (e.key === 'r' || e.key === 'R') openModal();
-        else if (e.key === 'Escape') closeModal();
+        else if (e.key === 'Escape') { deactivateGesture(); closeModal(); }
       });
     }
 
     connect();
-    return { sync, openModal, closeModal, openSimulator, hideLaser };
+    return {
+      sync,
+      openModal,
+      closeModal,
+      openSimulator,
+      hideLaser,
+      registerGesture,
+      deactivateGesture,
+      getActiveGesture: () => activeGesture ? { el: activeGesture.el, type: activeGesture.type, config: activeGesture.config } : null
+    };
   }
 
-  global.SlideRemote = { init, mountMobileController, renderQRSvg };
+  global.SlideRemote = { init, mountMobileController, renderQRSvg, registerGestureType, gestureTypes };
 })(window);

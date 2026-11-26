@@ -210,51 +210,57 @@ function renderMobileControllerHTML() {
   <title>Slide Remote Controller</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1120; color: #f1f5f9; min-height: 100dvh; }
-    .wrap { display: flex; flex-direction: column; gap: 11px; max-width: 440px; margin: 0 auto; padding: 14px; min-height: 100dvh; }
-    .pad { touch-action: none; user-select: none; -webkit-user-select: none; position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; background: #020617; border: 2px solid #334155; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: crosshair; }
+    body { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1120; color: #f1f5f9; height: 100dvh; overflow: hidden; }
+    .wrap { display: flex; flex-direction: column; gap: 10px; max-width: 460px; margin: 0 auto; padding: 12px 14px max(14px, env(safe-area-inset-bottom)); height: 100dvh; overflow-y: auto; }
+    .pad-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .pad { touch-action: none; user-select: none; -webkit-user-select: none; position: relative; width: 100%; flex: 1; min-height: 200px; border-radius: 14px; background: #020617; border: 2px solid #334155; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: crosshair; }
+    .nav-btn { cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; transition: transform .08s ease, filter .08s ease; }
+    .nav-btn:active { transform: scale(0.97); filter: brightness(1.12); }
     input[type="range"] { accent-color: #1d5ca8; }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0">
       <div id="conn" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#fcd34d">
         <span style="width:8px;height:8px;border-radius:9999px;background:#f59e0b"></span><span>Connecting…</span>
       </div>
-      <button id="timer" style="cursor:pointer;font-family:ui-monospace,monospace;font-size:11px;padding:4px 9px;border-radius:9999px;background:#1e293b;color:#cbd5e1;border:1px solid #334155">00:00 ▸</button>
+      <div style="display:flex;align-items:center;gap:6px">
+        <button id="btnNotes" aria-expanded="false" style="cursor:pointer;font-size:11px;font-weight:700;padding:4px 9px;border-radius:9999px;background:#1e293b;color:#94a3b8;border:1px solid #334155">Notes</button>
+        <button id="timer" style="cursor:pointer;font-family:ui-monospace,monospace;font-size:11px;padding:4px 9px;border-radius:9999px;background:#1e293b;color:#cbd5e1;border:1px solid #334155">00:00 ▸</button>
+      </div>
     </div>
 
-    <div style="border-radius:12px;background:#1e293b;border:1px solid #334155;padding:9px 12px">
+    <div style="border-radius:12px;background:#1e293b;border:1px solid #334155;padding:8px 11px;flex-shrink:0">
       <div id="meta" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#93c5fd;font-weight:700">Waiting for deck…</div>
       <div id="title" style="font-size:13px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">—</div>
     </div>
 
-    <div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;font-size:11px;color:#94a3b8">
+    <div id="notesCard" style="display:none;border-radius:12px;background:rgba(30,41,59,.9);border:1px solid #334155;padding:9px 12px;max-height:22dvh;overflow-y:auto;flex-shrink:0">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;color:#94a3b8;margin-bottom:4px">Speaker Notes</div>
+      <div id="notes" style="font-size:12.5px;line-height:1.45;color:#e2e8f0"></div>
+    </div>
+
+    <div id="controls" style="display:none;border-radius:12px;background:rgba(23,37,84,.65);border:1px solid #1d5ca8;padding:9px 10px;flex-direction:column;gap:8px;flex-shrink:0"></div>
+
+    <div class="pad-wrap">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;font-size:11px;color:#94a3b8;flex-shrink:0">
         <span style="font-weight:600">Touchpad Laser Pointer</span>
         <div style="display:flex;gap:4px">
-          <button id="mDot" style="cursor:pointer;border:none;padding:2px 8px;border-radius:5px;font-size:10.5px;font-weight:700;background:#ef4444;color:#fff">Dot</button>
-          <button id="mSpot" style="cursor:pointer;border:none;padding:2px 8px;border-radius:5px;font-size:10.5px;font-weight:700;background:#1e293b;color:#94a3b8">Spotlight</button>
+          <button id="mDot" style="cursor:pointer;border:none;padding:3px 9px;border-radius:6px;font-size:10.5px;font-weight:700;background:#ef4444;color:#fff">Dot</button>
+          <button id="mSpot" style="cursor:pointer;border:none;padding:3px 9px;border-radius:6px;font-size:10.5px;font-weight:700;background:#1e293b;color:#94a3b8">Spotlight</button>
         </div>
       </div>
       <div id="pad" class="pad">
         <div style="position:absolute;inset:0;opacity:.16;pointer-events:none;background-image:linear-gradient(to right,#64748b 1px,transparent 1px),linear-gradient(to bottom,#64748b 1px,transparent 1px);background-size:25% 25%"></div>
-        <span style="font-size:11px;color:#64748b;pointer-events:none">Drag finger here to point on slide</span>
+        <span id="padHint" style="font-size:11.5px;color:#64748b;pointer-events:none;text-align:center;padding:0 12px">Drag finger here to point on slide</span>
         <div id="thumb" style="display:none;position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:9999px;background:#ef4444;box-shadow:0 0 0 4px rgba(239,68,68,.3);pointer-events:none"></div>
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
-      <button id="btnPrev" style="cursor:pointer;padding:13px 0;border-radius:12px;background:#1e293b;border:1px solid #334155;color:#fff;font-weight:700;font-size:14px">← Prev</button>
-      <button id="btnNext" style="cursor:pointer;padding:13px 0;border-radius:12px;background:#1d5ca8;border:none;color:#fff;font-weight:800;font-size:15px">Next Slide →</button>
-    </div>
-
-    <div id="controls" style="display:none;border-radius:12px;background:rgba(23,37,84,.65);border:1px solid #1d5ca8;padding:10px;flex-direction:column;gap:8px"></div>
-
-    <div style="border-radius:12px;background:rgba(30,41,59,.85);border:1px solid #334155;padding:10px 12px;flex:1">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;color:#94a3b8;margin-bottom:4px">Speaker Notes</div>
-      <div id="notes" style="font-size:12.5px;line-height:1.5;color:#e2e8f0"></div>
+    <div style="display:grid;grid-template-columns:1fr 1.85fr;gap:10px;flex-shrink:0">
+      <button id="btnPrev" class="nav-btn" style="min-height:clamp(92px,16dvh,140px);border-radius:16px;background:#1e293b;border:1.5px solid #475569;color:#f8fafc;font-weight:700;font-size:18px">← Prev</button>
+      <button id="btnNext" class="nav-btn" style="min-height:clamp(92px,16dvh,140px);border-radius:16px;background:#1d5ca8;border:none;color:#fff;font-weight:800;font-size:21px;box-shadow:0 6px 20px rgba(29,92,168,.35)">Next →</button>
     </div>
   </div>
   <script>
@@ -263,7 +269,7 @@ function renderMobileControllerHTML() {
     const wsProto = location.protocol === 'https:' ? 'wss://' : 'ws://';
     const wsUrl = wsProto + location.host + '/ws?room=' + encodeURIComponent(room) + '&token=' + encodeURIComponent(token) + '&role=remote';
 
-    let ws = null, reconnectTimer = null, peers = 0, mode = 'dot', timerSec = 0, timerRun = false, timerId = null;
+    let ws = null, reconnectTimer = null, peers = 0, mode = 'dot', notesOpen = false, timerSec = 0, timerRun = false, timerId = null;
     const $ = id => document.getElementById(id);
     const send = (obj) => { if (ws && ws.readyState === WebSocket.OPEN) try { ws.send(JSON.stringify(obj)); } catch {} };
 
@@ -363,6 +369,26 @@ function renderMobileControllerHTML() {
       box.style.display = 'none'; box.innerHTML = '';
     }
 
+    function setGestureState(msg) {
+      const p = $('pad'), h = $('padHint');
+      if (!p) return;
+      if (msg && msg.active) {
+        p.style.borderColor = '#3b82f6';
+        p.style.boxShadow = '0 0 0 2px rgba(59,130,246,.35)';
+        if (h) {
+          h.textContent = (msg.label || 'Control') + ' · ' + (msg.hint || 'Drag to adjust · tap away to release');
+          h.style.color = '#93c5fd';
+        }
+      } else {
+        p.style.borderColor = '#334155';
+        p.style.boxShadow = 'none';
+        if (h) {
+          h.textContent = 'Drag finger here to point on slide';
+          h.style.color = '#64748b';
+        }
+      }
+    }
+
     function connect() {
       clearTimeout(reconnectTimer);
       if (ws) {
@@ -382,18 +408,29 @@ function renderMobileControllerHTML() {
           $('title').textContent = m.title || '—';
           $('notes').textContent = m.notes || 'No speaker notes on this slide.';
           renderControls(m);
+        } else if (m.type === 'gesture_state') {
+          setGestureState(m);
         }
       };
       sock.onclose = () => {
         if (sock !== ws) return;
         ws = null;
         peers = 0;
+        setGestureState({ active: false });
         setConn('off');
         reconnectTimer = setTimeout(connect, 2200);
       };
       sock.onerror = () => {};
     }
 
+    $('btnNotes').onclick = () => {
+      notesOpen = !notesOpen;
+      $('notesCard').style.display = notesOpen ? 'block' : 'none';
+      $('btnNotes').setAttribute?.('aria-expanded', String(notesOpen));
+      $('btnNotes').style.background = notesOpen ? '#1d5ca8' : '#1e293b';
+      $('btnNotes').style.color = notesOpen ? '#fff' : '#94a3b8';
+      $('btnNotes').style.borderColor = notesOpen ? 'transparent' : '#334155';
+    };
     $('btnPrev').onclick = () => { navigator.vibrate?.(12); send({ type: 'nav', action: 'prev' }); };
     $('btnNext').onclick = () => { navigator.vibrate?.(12); send({ type: 'nav', action: 'next' }); };
     $('mDot').onclick = () => { mode = 'dot'; $('mDot').style.background = '#ef4444'; $('mDot').style.color = '#fff'; $('mSpot').style.background = '#1e293b'; $('mSpot').style.color = '#94a3b8'; };
@@ -405,19 +442,53 @@ function renderMobileControllerHTML() {
     };
 
     const pad = $('pad'), thumb = $('thumb');
-    let drag = false, lastSent = 0;
-    const emit = (cx, cy) => {
+    let drag = false, lastSent = 0, downTime = 0, downX = 0, downY = 0, prevX = 0, prevY = 0, accDx = 0, accDy = 0, moved = false;
+    const padPos = (cx, cy) => {
       const r = pad.getBoundingClientRect();
-      const nx = Math.max(0, Math.min(1, (cx - r.left) / r.width));
-      const ny = Math.max(0, Math.min(1, (cy - r.top) / r.height));
-      thumb.style.display = 'block'; thumb.style.left = (nx*100).toFixed(1)+'%'; thumb.style.top = (ny*100).toFixed(1)+'%';
-      const now = performance.now();
-      if (now - lastSent >= 18) { lastSent = now; send({ type: 'pointer', x: nx, y: ny, mode }); }
+      const w = r.width || 1, h = r.height || 1;
+      return [
+        Math.max(0, Math.min(1, (cx - r.left) / w)),
+        Math.max(0, Math.min(1, (cy - r.top) / h))
+      ];
     };
-    pad.addEventListener('pointerdown', e => { drag = true; pad.setPointerCapture?.(e.pointerId); emit(e.clientX, e.clientY); });
-    pad.addEventListener('pointermove', e => { if (drag) emit(e.clientX, e.clientY); });
-    const end = () => { if (!drag) return; drag = false; thumb.style.display = 'none'; send({ type: 'pointer_hide' }); };
-    pad.addEventListener('pointerup', end); pad.addEventListener('pointercancel', end);
+    const showThumb = (nx, ny) => {
+      thumb.style.display = 'block'; thumb.style.left = (nx*100).toFixed(1)+'%'; thumb.style.top = (ny*100).toFixed(1)+'%';
+    };
+    pad.addEventListener('pointerdown', e => {
+      drag = true; moved = false; downTime = performance.now();
+      pad.setPointerCapture?.(e.pointerId);
+      const [nx, ny] = padPos(e.clientX, e.clientY);
+      downX = prevX = nx; downY = prevY = ny; accDx = 0; accDy = 0; lastSent = downTime;
+      showThumb(nx, ny);
+      send({ type: 'pointer', phase: 'start', x: nx, y: ny, dx: 0, dy: 0, mode });
+    });
+    pad.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const [nx, ny] = padPos(e.clientX, e.clientY);
+      accDx += nx - prevX; accDy += ny - prevY; prevX = nx; prevY = ny;
+      if (!moved && Math.hypot(nx - downX, ny - downY) > 0.03) moved = true;
+      showThumb(nx, ny);
+      const now = performance.now();
+      if (now - lastSent >= 18) {
+        lastSent = now;
+        const dx = accDx, dy = accDy; accDx = 0; accDy = 0;
+        send({ type: 'pointer', phase: 'move', x: nx, y: ny, dx, dy, mode });
+      }
+    });
+    const end = (isCancel) => {
+      if (!drag) return;
+      drag = false; thumb.style.display = 'none';
+      if (moved && (accDx !== 0 || accDy !== 0)) {
+        send({ type: 'pointer', phase: 'move', x: prevX, y: prevY, dx: accDx, dy: accDy, mode });
+        accDx = 0; accDy = 0;
+      }
+      if (!isCancel && !moved && (performance.now() - downTime) < 350) {
+        navigator.vibrate?.(10);
+        send({ type: 'pointer_tap', x: prevX, y: prevY, mode });
+      }
+      send({ type: 'pointer_hide' });
+    };
+    pad.addEventListener('pointerup', () => end(false)); pad.addEventListener('pointercancel', () => end(true));
 
     async function wake() { try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } catch {} }
     wake();

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <title>Join the audience · LiveDeck</title>
-<style>html,body{margin:0;min-height:100%;background:#f6f5ef}</style>
+<style>html,body{margin:0;min-height:100%;background:#f6f5ef}body:has(.participant[data-activity="joystick"]){background:#101a2a}</style>
 <style id="participant-css">
 .participant {
   --ink:#202d2a; --muted:#52625b; --line:#c8cec2; --accent:#166862;
@@ -43,6 +43,35 @@
 .participant .p-feedback {min-height:1.5em; margin:18px 0 0; font-size:.94rem}
 .participant .p-keyhelp {display:none; font-size:.8rem}
 .participant .p-draw:focus-within .p-keyhelp {display:block}
+.participant[data-activity="joystick"] {
+  --ink:#f1f6fa; --muted:#b5c7d7; --line:#384960; --accent:#6be2dc; background:#101a2a;
+}
+.participant .p-joystick {text-align:center}
+.participant .p-stick {
+  --sx:0px; --sy:0px; position:relative; width:min(100%, 20rem); aspect-ratio:1; margin:12px auto;
+  display:block; border:2px solid #457779; border-radius:50%; background-color:#132838;
+  background-image:linear-gradient(90deg,transparent 49.7%,#375768 50%,transparent 50.3%),
+    linear-gradient(transparent 49.7%,#375768 50%,transparent 50.3%),
+    radial-gradient(circle,transparent 43%,#375768 43.4%,transparent 44%);
+  box-shadow:inset 0 0 0 5px #102030,inset 0 0 30px #091421;
+  color:#94eae1; font-size:1.25rem; font-weight:700; cursor:grab; touch-action:none;
+  -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent;
+}
+.participant .p-stick:focus-visible {outline:3px solid #9aeae7; outline-offset:4px}
+.participant .p-stick[data-held="true"] {cursor:grabbing; border-color:var(--accent)}
+.participant .p-stick[aria-disabled="true"] {opacity:.55; cursor:default}
+.participant .p-stick span {position:absolute; pointer-events:none}
+.participant .p-n {top:5%; left:50%; transform:translateX(-50%)}
+.participant .p-e {right:6%; top:50%; transform:translateY(-50%)}
+.participant .p-s {bottom:5%; left:50%; transform:translateX(-50%)}
+.participant .p-w {left:6%; top:50%; transform:translateY(-50%)}
+.participant .p-thumb {
+  left:50%; top:50%; width:23%; aspect-ratio:1; border-radius:50%; border:2px solid #fff1b4;
+  background:radial-gradient(circle at 38% 30%,#ffe9a3,#eeb64e 72%); box-shadow:0 3px 9px #061119,0 0 14px #e5b14642;
+  transform:translate(calc(-50% + var(--sx)),calc(-50% + var(--sy)));
+}
+.participant .p-direction {color:#9aeae7; font-weight:600; margin:.8rem 0}
+.participant .p-joystick:focus-within .p-keyhelp {display:block}
 @media (prefers-reduced-motion:reduce) { .participant .p-option::before {transition:none} }
 </style>
 </head>
@@ -72,6 +101,15 @@
         <div class="p-palette" role="group" aria-label="Pen color"></div>
         <p class="p-keyhelp">Use arrows to move the pen. Space starts or finishes a line. Escape cancels.</p>
       </div>
+      <div class="p-joystick" hidden>
+        <div class="p-stick" tabindex="0" role="group" aria-label="Steering joystick. Press and hold in a direction, or hold arrow keys. Release to stop.">
+          <span class="p-n" aria-hidden="true">↑</span><span class="p-e" aria-hidden="true">→</span>
+          <span class="p-s" aria-hidden="true">↓</span><span class="p-w" aria-hidden="true">←</span>
+          <span class="p-thumb" aria-hidden="true"></span>
+        </div>
+        <div class="p-direction">Ready to steer</div>
+        <p class="p-keyhelp">Hold arrow keys to steer. Combine two for a diagonal.</p>
+      </div>
       <p class="p-feedback" role="status" aria-live="polite"></p>`;
     const el = name => root.querySelector('.p-' + name);
     const canvas = el('canvas'), ctx = canvas.getContext('2d');
@@ -92,6 +130,89 @@
     let pen = null, cursor = [.5, .5], showCursor = false;
     const clamp = n => Math.max(0, Math.min(1, n));
     const rounded = n => Math.round(clamp(n) * 1000) / 1000;
+    const pad = el('stick');
+    const compass = ['Right','Down-right','Down','Down-left','Left','Up-left','Up','Up-right'];
+    const heldKeys = new Set();
+    let stickPointer = null, held = false, heartbeat = null, motionTimer = null;
+    let direction = {x:0,y:0}, seq = Date.now() * 1024, lastSend = 0;
+    function sendDirection() {
+      clearTimeout(motionTimer);
+      motionTimer = null;
+      if (!online || current.activity?.kind !== 'joystick' || !current.round) return;
+      lastSend = performance.now();
+      send({type:'steer',key:current.key,round:current.round,client,seq:++seq,...direction});
+    }
+    function moveStick(x,y,deadZone) {
+      const length = Math.hypot(x,y);
+      const nearCenter = length <= deadZone;
+      direction = nearCenter ? {x:0,y:0} : {x:x/length,y:y/length};
+      const travel = Math.min(1,length) * pad.clientWidth * .37;
+      pad.style.setProperty('--sx', direction.x * travel + 'px');
+      pad.style.setProperty('--sy', direction.y * travel + 'px');
+      pad.dataset.x = direction.x;
+      pad.dataset.y = direction.y;
+      pad.dataset.held = String(held);
+      const octant = (Math.round(Math.atan2(y,x) * 4 / Math.PI) + 8) % 8;
+      el('direction').textContent = !held ? 'Ready to steer' : nearCenter ? 'Centered' : compass[octant];
+    }
+    function startHold() {
+      held = true;
+      clearInterval(heartbeat);
+      heartbeat = setInterval(sendDirection,200);
+    }
+    function releaseStick() {
+      if (!held) return;
+      held = false; stickPointer = null; heldKeys.clear();
+      clearInterval(heartbeat); heartbeat = null;
+      moveStick(0,0,0);
+      sendDirection();
+    }
+    function queueMove() {
+      const wait = 40 - (performance.now() - lastSend);
+      if (wait <= 0 || (!direction.x && !direction.y)) sendDirection();
+      else if (motionTimer === null) motionTimer = setTimeout(sendDirection, wait);
+    }
+    function moveFromPointer(ev) {
+      const rect = pad.getBoundingClientRect();
+      moveStick((ev.clientX-rect.left)*2/rect.width-1, (ev.clientY-rect.top)*2/rect.height-1, .12);
+    }
+    pad.onpointerdown = ev => {
+      if (!online || !current.round || held || ev.button !== 0) return;
+      ev.preventDefault(); pad.setPointerCapture(ev.pointerId);
+      stickPointer = ev.pointerId;
+      startHold(); moveFromPointer(ev); sendDirection();
+    };
+    pad.onpointermove = ev => {
+      if (stickPointer !== ev.pointerId) return;
+      moveFromPointer(ev); queueMove();
+    };
+    pad.onpointerup = pad.onpointercancel = pad.onlostpointercapture = ev => {
+      if (stickPointer === ev.pointerId) releaseStick();
+    };
+    function keyMotion() {
+      const x = Number(heldKeys.has('ArrowRight')) - Number(heldKeys.has('ArrowLeft'));
+      const y = Number(heldKeys.has('ArrowDown')) - Number(heldKeys.has('ArrowUp'));
+      moveStick(x,y,0); sendDirection();
+    }
+    pad.onkeydown = ev => {
+      if (!online || !current.round || stickPointer !== null || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(ev.key)) return;
+      ev.preventDefault();
+      if (heldKeys.has(ev.key)) return;
+      if (!held) startHold();
+      heldKeys.add(ev.key); keyMotion();
+    };
+    pad.onkeyup = ev => {
+      if (!heldKeys.delete(ev.key)) return;
+      ev.preventDefault();
+      if (heldKeys.size) keyMotion();
+      else releaseStick();
+    };
+    pad.oncontextmenu = ev => ev.preventDefault();
+    pad.onblur = releaseStick;
+    addEventListener('blur',releaseStick);
+    addEventListener('pagehide',releaseStick);
+    document.addEventListener('visibilitychange',() => { if (document.hidden) releaseStick(); });
+    moveStick(0,0,0);
     function stroke(line) {
       const points = line?.points;
       if (!palette.has(line.color) || !Array.isArray(points) || !points.length) return;
@@ -132,6 +253,7 @@
         swatch.setAttribute('aria-pressed', String(swatch.dataset.color === color));
       }
       canvas.setAttribute('aria-disabled', String(!online || !!current.full));
+      pad.setAttribute('aria-disabled', String(!online || !current.round));
     }
     function receipt(msg) {
       const input = pending.get(msg.receipt);
@@ -164,18 +286,25 @@
       }
     }
     function render(state) {
+      if (held && (current.key !== state?.key || current.round !== state?.round)) releaseStick();
       current = state || {key:null, activity:null};
       const activity = current.activity;
-      const nextSignature = JSON.stringify([current.key,activity?.kind,activity?.prompt,activity?.options]);
+      const fields = [current.key,activity?.kind,activity?.prompt,activity?.options];
+      if (activity?.kind === 'joystick') fields.push(current.round);
+      const nextSignature = JSON.stringify(fields);
       if (signature !== nextSignature) {
         signature = nextSignature; pen = null; showCursor = false;
+        root.dataset.activity = activity?.kind || '';
         el('title').textContent = activity?.prompt || 'Waiting for an activity';
         el('help').textContent = activity?.kind === 'vote' ? 'Tap a choice to cast your vote.'
-          : activity?.kind === 'draw' ? 'Choose a color and draw with your finger.' : 'Keep this page open. The next audience activity will appear here.';
+          : activity?.kind === 'draw' ? 'Choose a color and draw with your finger.'
+          : activity?.kind === 'joystick' ? 'Hold a direction to steer together. Slide to turn and lift to stop.'
+          : 'Keep this page open. The next audience activity will appear here.';
         el('feedback').textContent = '';
         el('votes').replaceChildren();
         el('votes').hidden = activity?.kind !== 'vote';
         el('draw').hidden = activity?.kind !== 'draw';
+        el('joystick').hidden = activity?.kind !== 'joystick';
         if (activity?.kind === 'vote') {
           (activity.options || []).forEach((option, i) => {
             const button = document.createElement('button');
@@ -194,6 +323,7 @@
       updateControls(); paint();
     }
     function setStatus(label, connected) {
+      if (!connected) releaseStick();
       online = connected;
       el('status').textContent = label;
       el('status').dataset.live = connected ? 'yes' : 'no';

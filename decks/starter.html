@@ -63,6 +63,7 @@
       }
     ];
 
+    const slideTitles = SLIDES.map(slide => slide.title);
     let idx = 0;
 
     function render() {
@@ -89,6 +90,7 @@
           index: idx,
           id: idx + 1,
           total: SLIDES.length,
+          slideTitles,
           title: s.title,
           notes: s.notes,
           controls: s.interactive ? {
@@ -100,7 +102,14 @@
           } : null
         };
       },
-      onNav: (action) => { if (action === 'next') next(); else if (action === 'prev') prev(); },
+      onNav: (action, index) => {
+        if (action === 'next') next();
+        else if (action === 'prev') prev();
+        else if (action === 'goto' && Number.isInteger(index) && index >= 0 && index < SLIDES.length) {
+          idx = index;
+          render();
+        }
+      },
       onAction: (action, payload) => {
         if (action === 'set_rate') { rate = Number(payload); render(); }
       }

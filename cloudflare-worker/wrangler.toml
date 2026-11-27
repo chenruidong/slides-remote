@@ -10,3 +10,9 @@ bindings = [
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["SlideRoom"]
+
+# Inline the same browser controller used by the local relay.
+[[rules]]
+type = "Text"
+globs = ["**/remote.js"]
+fallthrough = true

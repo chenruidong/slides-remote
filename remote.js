@@ -178,6 +178,26 @@
       .sr-remote-wrap .sr-pad { flex:1; min-height:200px; }
       .sr-sim-wrap { display:flex; flex-direction:column; gap:9px; }
       .sr-sim-wrap .sr-pad { aspect-ratio:16/10; min-height:165px; }
+      .sr-slide-trigger { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:2px 10px; width:100%; flex:none; min-height:48px; padding:8px 11px; border:1px solid #475569; border-radius:12px; background:#1e293b; color:#f8fafc; text-align:left; font:inherit; cursor:pointer; }
+      .sr-slide-trigger:enabled::after { content:'▾'; grid-column:2; grid-row:1 / 3; color:#93c5fd; }
+      .sr-slide-trigger:disabled { cursor:default; border-color:#334155; opacity:1; }
+      .sr-slide-meta { grid-column:1; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#93c5fd; }
+      .sr-slide-title { grid-column:1; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .sr-slide-dialog { box-sizing:border-box; width:min(28rem,calc(100vw - 24px)); max-height:85dvh; margin:auto; padding:0; overflow:hidden; border:1px solid #475569; border-radius:16px; background:#0f172a; color:#f8fafc; font:14px/1.4 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; box-shadow:0 16px 60px #0006; }
+      .sr-slide-dialog[open] { display:flex; flex-direction:column; }
+      .sr-slide-dialog::backdrop { background:rgba(2,6,23,.7); }
+      .sr-slide-dialog header { display:flex; flex:none; align-items:center; justify-content:space-between; padding:8px 16px; border-bottom:1px solid #334155; }
+      .sr-slide-dialog h2 { margin:0; font-family:inherit; font-size:17px; line-height:1.3; font-weight:700; color:inherit; }
+      .sr-slide-dialog button { min-height:44px; border:0; font:inherit; cursor:pointer; }
+      .sr-slide-close { padding:0 8px; color:#93c5fd; background:transparent; }
+      .sr-slide-list { display:grid; gap:4px; padding:8px; overflow:auto; overscroll-behavior:contain; }
+      .sr-slide-list button { display:flex; gap:12px; align-items:center; padding:9px 12px; border-radius:8px; background:#1e293b; color:#e2e8f0; text-align:left; overflow-wrap:anywhere; }
+      .sr-slide-list button::before { content:attr(data-number); min-width:2ch; color:#93c5fd; font-weight:700; font-variant-numeric:tabular-nums; }
+      .sr-slide-list.numbered { grid-template-columns:repeat(auto-fill,minmax(52px,1fr)); }
+      .sr-slide-list.numbered button { justify-content:center; text-align:center; }
+      .sr-slide-list button[aria-current="page"] { background:#1d4e89; box-shadow:inset 0 0 0 1px #93c5fd; color:#fff; }
+      .sr-slide-list button[aria-current="page"]::before { color:#fff; }
+      .sr-slide-dialog button:focus-visible, .sr-slide-trigger:focus-visible { outline:2px solid #bae6fd; outline-offset:-3px; }
       .sr-nav-btn { cursor:pointer; touch-action:manipulation; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent; transition:transform .08s ease, filter .08s ease; }
       .sr-nav-btn:active { transform:scale(0.97); filter:brightness(1.12); }
       .sr-gesture-hover { outline:2px dashed rgba(29,92,168,.65); outline-offset:4px; border-radius:8px; transition:outline-color .12s, box-shadow .12s; }
@@ -210,6 +230,91 @@
   /* ==========================================================================
      3. SHARED PHONE CONTROLLER UI (Used on /remote AND in Simulator Drawer)
      ========================================================================== */
+  function mountSlidePicker(trigger, sendMsg) {
+    injectStyles();
+    trigger.classList.add('sr-slide-trigger');
+    trigger.disabled = true;
+    trigger.setAttribute('aria-haspopup', 'dialog');
+    trigger.title = 'Choose a slide';
+    trigger.innerHTML = `<span class="sr-slide-meta">Waiting for deck…</span><strong class="sr-slide-title">—</strong>`;
+
+    const dialog = document.createElement('dialog');
+    dialog.className = 'sr-slide-dialog';
+    dialog.setAttribute('aria-label', 'Choose a slide');
+    dialog.innerHTML = `<header><h2>Choose a slide</h2><button type="button" class="sr-slide-close">Close</button></header>
+      <div class="sr-slide-list"></div>`;
+    trigger.after(dialog);
+    const list = dialog.querySelector('.sr-slide-list');
+    let state = null;
+    let connected = false;
+
+    function currentIndex() {
+      return state?.index ?? (Number(state?.id) - 1);
+    }
+
+    function updateAvailability() {
+      trigger.disabled = !connected || !Number.isSafeInteger(state?.total) || state.total < 1 || state.canGoto === false;
+      if (trigger.disabled && dialog.open) dialog.close();
+    }
+
+    function renderList() {
+      const titles = state.slideTitles;
+      const hasTitles = Array.isArray(titles) && titles.length === state.total;
+      list.classList.toggle('numbered', !hasTitles);
+      while (list.childElementCount > state.total) list.lastElementChild.remove();
+      for (let index = 0; index < state.total; index++) {
+        let choice = list.children[index];
+        if (!choice) {
+          choice = document.createElement('button');
+          choice.type = 'button';
+          choice.dataset.slideIndex = index;
+          choice.dataset.number = index + 1;
+          list.appendChild(choice);
+        }
+        const title = hasTitles ? (titles[index] || '') : '';
+        if (choice.textContent !== title) choice.textContent = title;
+        choice.setAttribute('aria-label', `Slide ${index + 1}${title ? ' · ' + title : ''}`);
+        if (index === currentIndex()) choice.setAttribute('aria-current', 'page');
+        else choice.removeAttribute('aria-current');
+      }
+    }
+
+    trigger.addEventListener('click', () => {
+      renderList();
+      dialog.showModal();
+      const current = list.querySelector('[aria-current]') || list.firstElementChild;
+      current.focus({ preventScroll: true });
+      current.scrollIntoView({ block: 'center' });
+    });
+    // In the simulator the deck's keyboard shortcuts share this document.
+    for (const element of [trigger, dialog]) {
+      element.addEventListener('keydown', event => event.stopPropagation());
+    }
+    dialog.querySelector('.sr-slide-close').addEventListener('click', () => dialog.close());
+    list.addEventListener('click', event => {
+      const choice = event.target.closest('[data-slide-index]');
+      if (!choice || trigger.disabled) return;
+      const index = Number(choice.dataset.slideIndex);
+      dialog.close();
+      if (index !== currentIndex()) sendMsg({ type: 'nav', action: 'goto', index });
+    });
+
+    return {
+      renderState(nextState) {
+        state = nextState;
+        const position = state.id ?? (Number.isInteger(state.index) ? state.index + 1 : '?');
+        trigger.querySelector('.sr-slide-meta').textContent = `Slide ${position} / ${state.total ?? '?'}${state.section ? ' · ' + state.section : ''}`;
+        trigger.querySelector('.sr-slide-title').textContent = state.title || '—';
+        updateAvailability();
+        if (dialog.open) renderList();
+      },
+      setConnected(value) {
+        connected = value;
+        updateAvailability();
+      }
+    };
+  }
+
   function createControllerUI(mountEl, { isSim, sendMsg, onCloseSim }) {
     injectStyles();
     let pointerMode = 'dot';
@@ -236,10 +341,7 @@
         </div>
       </div>
 
-      <div style="border-radius:12px;background:#1e293b;border:1px solid #334155;padding:8px 11px;flex-shrink:0">
-        <div data-sr="meta" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#93c5fd;font-weight:700">Waiting for deck…</div>
-        <div data-sr="title" style="font-size:13px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">—</div>
-      </div>
+      <button type="button" data-sr="chooseSlide"></button>
 
       <div data-sr="notesCard" style="display:none;border-radius:12px;background:rgba(30,41,59,.9);border:1px solid #334155;padding:9px 12px;max-height:22dvh;overflow-y:auto;flex-shrink:0">
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;color:#94a3b8;margin-bottom:4px">Speaker Notes</div>
@@ -272,6 +374,8 @@
     const q = name => mountEl.querySelector(`[data-sr="${name}"]`);
     const pad = q('pad'), thumb = q('thumb'), modeDot = q('modeDot'), modeSpot = q('modeSpot');
     const notesBtn = q('toggleNotes'), notesCard = q('notesCard');
+    const picker = mountSlidePicker(q('chooseSlide'), sendMsg);
+    picker.setConnected(isSim);
 
     notesBtn?.addEventListener('click', () => {
       notesOpen = !notesOpen;
@@ -395,6 +499,7 @@
 
     function setConnectionStatus(status, peers) {
       if (isSim) return;
+      picker.setConnected(status === 'connected' && peers > 0);
       const el = q('conn');
       if (status === 'connected' && peers > 0) {
         el.style.color = '#86efac';
@@ -409,8 +514,7 @@
     }
 
     function renderState(st) {
-      q('meta').textContent = `Slide ${st.id ?? (st.index + 1)} / ${st.total ?? '?'}${st.section ? ' · ' + st.section : ''}`;
-      q('title').textContent = st.title || '—';
+      picker.renderState(st);
       q('notes').textContent = st.notes || 'No speaker notes on this slide.';
 
       const box = q('controls');
@@ -489,7 +593,13 @@
     keepAwake();
 
     function connect() {
-      if (ws) { try { ws.close(); } catch {} ws = null; }
+      if (ws) {
+        ws.onopen = ws.onclose = ws.onmessage = null;
+        try { ws.close(); } catch {}
+        ws = null;
+      }
+      peers = 0;
+      ui.setConnectionStatus('offline', 0);
       clearTimeout(reconnectTimer);
       const wsUrl = buildWsUrl(relay, room, token, 'remote');
       if (!wsUrl) { ui.setConnectionStatus('offline', 0); return; }
@@ -501,7 +611,7 @@
         else if (msg.type === 'state') ui.renderState(msg);
         else if (msg.type === 'gesture_state') ui.setGestureState(msg);
       };
-      ws.onclose = () => { ui.setGestureState({ active: false }); ui.setConnectionStatus('offline', 0); reconnectTimer = setTimeout(connect, 2200); };
+      ws.onclose = () => { peers = 0; ui.setGestureState({ active: false }); ui.setConnectionStatus('offline', 0); reconnectTimer = setTimeout(connect, 2200); };
       ws.onerror = () => {};
     }
 
@@ -1260,5 +1370,5 @@
     };
   }
 
-  global.SlideRemote = { init, mountMobileController, renderQRSvg, registerGestureType, gestureTypes };
+  global.SlideRemote = { init, mountMobileController, mountSlidePicker, renderQRSvg, registerGestureType, gestureTypes };
 })(window);

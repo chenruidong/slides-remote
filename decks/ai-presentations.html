@@ -560,13 +560,21 @@
       return null;
     }
 
+    const slideTitles = SLIDES.map(slide => slide.title);
     const remote = SlideRemote.init({
       stageSelector: '#slideStage',
       getState: () => {
         const s = SLIDES[currentSlide];
-        return { index: currentSlide, id: s.id, total: SLIDES.length, section: s.section, title: s.title, notes: s.notes, controls: buildSlideControls(s.id) };
+        return { index: currentSlide, id: s.id, total: SLIDES.length, slideTitles, section: s.section, title: s.title, notes: s.notes, controls: buildSlideControls(s.id) };
       },
-      onNav: (action, idx) => { if (action === 'next') nextSlide(); else if (action === 'prev') prevSlide(); else if (action === 'goto' && typeof idx === 'number') goToSlide(idx); },
+      onNav: (action, index) => {
+        if (action === 'next') nextSlide();
+        else if (action === 'prev') prevSlide();
+        else if (action === 'goto' && Number.isInteger(index) && index >= 0 && index < SLIDES.length) {
+          goToSlide(index);
+          if (handoutOpen) toggleHandout(false);
+        }
+      },
       onAction: (action, payload) => {
         if (action === 'demo1') { Object.assign(demo1State, payload); if (currentSlide === 22) applyDemo1StateToDOM(); remote.sync(); }
         else if (action === 'demo1_cue') { demo1State.cueBoost = Number(payload); if (currentSlide === 22) applyDemo1StateToDOM(); remote.sync(); }

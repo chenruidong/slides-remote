@@ -31,8 +31,14 @@
   gap:12px; min-height:58px; width:100%; padding:12px 16px; border:1px solid var(--line); border-radius:10px; background:#fff;
   text-align:left; overflow-wrap:anywhere}
 .participant .p-option::before {content:""; position:absolute; z-index:-1; inset:0 auto 0 0; width:var(--share,0%); background:#dfebe4; transition:width .2s}
+.participant .p-votes[data-private="true"] .p-option::before {content:none}
 .participant .p-option[aria-pressed="true"] {border:2px solid var(--accent); padding:11px 15px; font-weight:700}
 .participant .p-count {flex:none; font-size:.88em; font-variant-numeric:tabular-nums; color:#45645c}
+.participant .p-total {margin:15px 0 0; color:var(--muted); font-size:.95rem}
+.participant .p-result {list-style:none; margin:0; padding:0; border-top:1px solid var(--line)}
+.participant .p-result li {display:flex; align-items:center; justify-content:space-between; gap:16px;
+  padding:14px 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere}
+.participant .p-result .p-count {font-weight:700; font-size:1.1rem}
 .participant button:focus-visible, .participant canvas:focus-visible {outline:3px solid #445bbb; outline-offset:3px}
 .participant .p-canvas {display:block; width:100%; aspect-ratio:16 / 9; border-radius:8px; background-color:white;
   outline:1px solid var(--line); cursor:crosshair; touch-action:none}
@@ -96,6 +102,8 @@
       <header class="p-header"><span class="p-name">LiveDeck Audience</span><span class="p-status" role="status"></span></header>
       <h1 class="p-title"></h1><p class="p-help"></p>
       <div class="p-votes" role="group" aria-label="Vote"></div>
+      <p class="p-total" hidden></p>
+      <ul class="p-result" aria-label="Votes by option" hidden></ul>
       <div class="p-draw" hidden>
         <canvas class="p-canvas" width="960" height="540" tabindex="0" aria-label="Group drawing canvas. Use arrow keys to position the pen. Space starts or finishes a line."></canvas>
         <div class="p-palette" role="group" aria-label="Pen color"></div>
@@ -239,15 +247,18 @@
       }
     }
     function updateControls() {
+      const hideCounts = current.activity?.kind === 'vote' && current.activity.hideCounts === true;
       const counts = current.counts || [];
       const total = counts.reduce((sum, n) => sum + n, 0);
       Array.from(el('votes').children).forEach((button, i) => {
-        const n = counts[i] || 0;
         button.disabled = !online;
         button.setAttribute('aria-pressed', String(selectedChoice() === i));
+        if (hideCounts) return;
+        const n = counts[i] || 0;
         button.style.setProperty('--share', (total ? 100 * n / total : 0) + '%');
         button.lastElementChild.textContent = n + (n === 1 ? ' vote' : ' votes');
       });
+      if (hideCounts) el('total').textContent = current.total === 1 ? '1 person has voted' : (current.total ?? 0) + ' people have voted';
       for (const swatch of el('palette').children) {
         swatch.disabled = !online || !!current.full;
         swatch.setAttribute('aria-pressed', String(swatch.dataset.color === color));
@@ -291,6 +302,8 @@
       const activity = current.activity;
       const fields = [current.key,activity?.kind,activity?.prompt,activity?.options];
       if (activity?.kind === 'joystick') fields.push(current.round);
+      if (activity?.hideCounts) fields.push(true);
+      if (activity?.kind === 'result' && activity.counts) fields.push(activity.counts);
       const nextSignature = JSON.stringify(fields);
       if (signature !== nextSignature) {
         signature = nextSignature; pen = null; showCursor = false;
@@ -302,7 +315,22 @@
           : 'Keep this page open. The next audience activity will appear here.';
         el('feedback').textContent = '';
         el('votes').replaceChildren();
+        const hideCounts = activity?.kind === 'vote' && activity.hideCounts === true;
+        el('votes').dataset.private = String(hideCounts);
         el('votes').hidden = activity?.kind !== 'vote';
+        el('total').hidden = !hideCounts;
+        el('total').textContent = '';
+        el('result').replaceChildren();
+        el('result').hidden = activity?.kind !== 'result' || !activity.options || !activity.counts;
+        if (!el('result').hidden) {
+          activity.options.forEach((option, i) => {
+            const row = document.createElement('li');
+            const label = document.createElement('span'); label.textContent = option;
+            const count = document.createElement('span'); count.className = 'p-count';
+            count.textContent = activity.counts[i];
+            row.append(label, count); el('result').append(row);
+          });
+        }
         el('draw').hidden = activity?.kind !== 'draw';
         el('joystick').hidden = activity?.kind !== 'joystick';
         if (activity?.kind === 'vote') {
@@ -310,8 +338,12 @@
             const button = document.createElement('button');
             button.type = 'button'; button.className = 'p-option';
             const label = document.createElement('span'); label.textContent = option;
-            const count = document.createElement('span'); count.className = 'p-count';
-            button.append(label, count); button.onclick = () => submit({type:'vote',choice:i});
+            button.append(label);
+            if (!hideCounts) {
+              const count = document.createElement('span'); count.className = 'p-count';
+              button.append(count);
+            }
+            button.onclick = () => submit({type:'vote',choice:i});
             el('votes').append(button);
           });
         }

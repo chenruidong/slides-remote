@@ -13,6 +13,7 @@
  */
 
 import audiencePage from './join.html';
+import remoteScript from '../remote.js';
 
 const ROOM_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
@@ -242,10 +243,7 @@ function renderMobileControllerHTML() {
       </div>
     </div>
 
-    <div style="border-radius:12px;background:#1e293b;border:1px solid #334155;padding:8px 11px;flex-shrink:0">
-      <div id="meta" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#93c5fd;font-weight:700">Waiting for deck…</div>
-      <div id="title" style="font-size:13px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">—</div>
-    </div>
+    <button id="slidePicker" type="button" aria-haspopup="dialog" disabled>Waiting for deck…</button>
 
     <div id="notesCard" style="display:none;border-radius:12px;background:rgba(30,41,59,.9);border:1px solid #334155;padding:9px 12px;max-height:22dvh;overflow-y:auto;flex-shrink:0">
       <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;color:#94a3b8;margin-bottom:4px">Speaker Notes</div>
@@ -274,6 +272,7 @@ function renderMobileControllerHTML() {
       <button id="btnNext" class="nav-btn" style="min-height:clamp(92px,16dvh,140px);border-radius:16px;background:#1d5ca8;border:none;color:#fff;font-weight:800;font-size:21px;box-shadow:0 6px 20px rgba(29,92,168,.35)">Next →</button>
     </div>
   </div>
+  <script>${remoteScript.replace(/<\/script/gi, '<\\/script')}</script>
   <script>
     const params = new URLSearchParams(location.search);
     const room = params.get('r') || '', token = params.get('t') || '';
@@ -284,7 +283,10 @@ function renderMobileControllerHTML() {
     const $ = id => document.getElementById(id);
     const send = (obj) => { if (ws && ws.readyState === WebSocket.OPEN) try { ws.send(JSON.stringify(obj)); } catch {} };
 
+    const picker = SlideRemote.mountSlidePicker($('slidePicker'), send);
+
     function setConn(st) {
+      picker.setConnected(st === 'ok' && peers > 0);
       const el = $('conn');
       if (st === 'ok' && peers > 0) { el.style.color = '#86efac'; el.innerHTML = '<span style="width:8px;height:8px;border-radius:9999px;background:#22c55e"></span><span>Connected (Cloudflare Backup)</span>'; }
       else if (st === 'ok') { el.style.color = '#fcd34d'; el.innerHTML = '<span style="width:8px;height:8px;border-radius:9999px;background:#f59e0b"></span><span>Relay ready · waiting for projector</span>'; }
@@ -407,6 +409,8 @@ function renderMobileControllerHTML() {
         try { ws.close(); } catch {}
         ws = null;
       }
+      peers = 0;
+      picker.setConnected(false);
       const sock = new WebSocket(wsUrl);
       ws = sock;
       sock.onopen = () => { if (sock !== ws) return; setConn('ok'); send({ type: 'request_state' }); };
@@ -415,8 +419,7 @@ function renderMobileControllerHTML() {
         let m; try { m = JSON.parse(e.data); } catch { return; }
         if (m.type === 'presence') { peers = m.decks || 0; setConn('ok'); }
         else if (m.type === 'state') {
-          $('meta').textContent = 'Slide ' + (m.id ?? (m.index + 1)) + ' / ' + (m.total ?? '?') + (m.section ? ' · ' + m.section : '');
-          $('title').textContent = m.title || '—';
+          picker.renderState(m);
           $('notes').textContent = m.notes || 'No speaker notes on this slide.';
           renderControls(m);
         } else if (m.type === 'gesture_state') {

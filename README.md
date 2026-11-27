@@ -12,6 +12,7 @@ Turn your smartphone into a touch controller and laser pointer for **any** HTML 
 ## Features
 - **Zero `npm install`, zero third-party cloud:** Pure Node.js (18+) HTTP + RFC-6455 WebSocket relay (`server.mjs`) and self-contained drop-in browser script (`remote.js`).
 - **Touchpad laser pointer & spotlight ring:** Drag your thumb on a 16:9 dark touchpad on your phone to move a smooth red laser dot or orange spotlight ring directly on the projected slide (zero gyroscope drift).
+- **Presenter slide picker.** Tap the slide number on your phone to browse the deck. The projector jumps directly to the slide you choose.
 - **Synced speaker notes & talk timer:** Read your speaker notes and elapsed time on your phone while the projector stays uncluttered.
 - **Declarative live demo controls:** Interactive slides can expose custom toggle buttons, prompt chips, or sliders directly on your phone screen (see `decks/ai-presentations.html` Slides 23–26 and `decks/starter.html` Slide 3).
 - **Built-in scannable QR code pairing (`R`):** Generates a per-session random room & secret PIN (pure-JS ISO/IEC 18004 QR generator — no external CDN).
@@ -55,20 +56,26 @@ To wire **any** HTML presentation (custom HTML, Reveal.js, Livedeck, etc.) into 
 ```html
 <script src="/remote.js"></script>
 <script>
+  const slideTitles = slides.map(slide => slide.title);
   const remote = SlideRemote.init({
     stageSelector: '#slideStage',          // Element where the laser dot overlays
     getState: () => ({
+      index: currentIndex,
       id: currentIndex + 1,
       total: slides.length,
+      slideTitles,
       section: 'Intro',
       title: slides[currentIndex].title,
       notes: slides[currentIndex].notes,
       // Optional: slide-specific buttons/sliders rendered on your phone!
       controls: null
     }),
-    onNav: (action) => {
+    onNav: (action, index) => {
       if (action === 'next') nextSlide();
       else if (action === 'prev') prevSlide();
+      else if (action === 'goto' && Number.isInteger(index) && index >= 0 && index < slides.length) {
+        goToSlide(index);
+      }
     },
     onAction: (action, payload) => {
       // Handle custom controls from your phone
@@ -78,6 +85,8 @@ To wire **any** HTML presentation (custom HTML, Reveal.js, Livedeck, etc.) into 
   // Call remote.sync() whenever your slide or interactive state updates
 </script>
 ```
+
+The picker uses `slideTitles` in presentation order. The first slide has navigation index `0`. Older exports that handle `goto` can use the updated phone remote with numbered choices. If your deck supports only Previous and Next, return `canGoto: false` from `getState()` to disable the picker.
 
 See [`decks/starter.html`](decks/starter.html) for a complete ~90-line working example, or [`decks/ai-presentations.html`](decks/ai-presentations.html) for a full 26-slide talk that looks like a classic slide deck and reveals live interactive plots, Q&A prompt editing, real-time rule checking, and a 1-page handout generator at the end.
 
